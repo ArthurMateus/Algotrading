@@ -1,0 +1,123 @@
+{
+  "config_sha256": {
+    "B.toml": "a50f89b68be39fd6c4683235204b7b007c342868a68d17e19445c4670128e9ca",
+    "common.toml": "63d20a25651b9eb7f5ce59b7e6bc5ff2ba0d003e1d179808826da51ae217a433"
+  },
+  "created_utc": "2026-10-11T21:16:49Z",
+  "criteria_sha256": "dd3305010517b3769162476dfcf35c6bea819d672fee25df4777e81c96268425",
+  "data": {
+    "bars_manifest_sha256": {
+      "BTCUSDT": "72e7b40b42a44262d4c445cfbf937662930eb27eade4ae7e3b75e56d71187c57",
+      "ETHUSDT": "34107610429beb57c55d6d71ae8722a3899d3fe284e118249a0e3f5eba74c074"
+    },
+    "bars_sha256": "7a861c96a3083a99eb5b7c1876005b05d98c5beafb563e1c39c97d210f409092",
+    "panel_sha256": "ee4d0bf4d2aa48bf799599c26c1374118d6d121b38afec292cc11f370a48689c",
+    "venue_filters": {
+      "lot": {
+        "BTCUSDT": 1e-05,
+        "ETHUSDT": 0.0001
+      },
+      "min_order": {
+        "BTCUSDT": 5.0,
+        "ETHUSDT": 5.0
+      }
+    },
+    "venue_filters_sha256": "d792c432cb779b4ec36af0ff1c76fb235a418c42171e42e7fad1a408f70e914c"
+  },
+  "dsr": {
+    "kurtosis": 12.767276532842928,
+    "n_obs": 1848,
+    "n_trials": 12,
+    "skew": 0.07901032615386448,
+    "sr_hat_per_bar": 0.06243340819772303,
+    "sr_trials_per_bar": [
+      0.04351349107453951,
+      0.04171083171359527,
+      0.061433308964397665,
+      0.04856457871775413,
+      0.0466441039587564,
+      0.04137971602567847,
+      0.05919094199655682,
+      0.0422332030732461,
+      0.06243340819772303,
+      0.054592357208443736,
+      0.048133091813256264,
+      0.04663295950714092
+    ],
+    "value": 0.983023735495369
+  },
+  "git_commit": "cfc3af3dfba0d12be8ebc3b8e698a06f5a0ef455",
+  "is_sharpe": {
+    "SMA-126-monthly": 1.0429855200023759,
+    "SMA-126-weekly": 1.192788588812779,
+    "SMA-252-monthly": 0.8909214404334679,
+    "SMA-252-weekly": 0.9195814279000666,
+    "SMA-63-monthly": 0.8068642117893853,
+    "SMA-63-weekly": 1.130841359020137,
+    "TSMOM-126-monthly": 0.9278249736356649,
+    "TSMOM-126-weekly": 1.173681719788217,
+    "TSMOM-252-monthly": 0.790558364640786,
+    "TSMOM-252-weekly": 0.8911343548826266,
+    "TSMOM-63-monthly": 0.7968843209761067,
+    "TSMOM-63-weekly": 0.8313240797097848
+  },
+  "is_sharpe_spread": {
+    "max": 1.192788588812779,
+    "median": 0.9053578913913466,
+    "min": 0.790558364640786,
+    "n": 12,
+    "stdev": 0.1483663401632246
+  },
+  "market": "B",
+  "rf_available": true,
+  "schema": 1,
+  "selected": {
+    "key": "SMA-126-weekly",
+    "lookback": 126,
+    "rebalance": "weekly",
+    "signal": "SMA"
+  },
+  "selection_rule": "highest IS Sharpe; ties: longer lookback, then monthly (criteria s.2); then TSMOM first",
+  "split": {
+    "e_start": "2018-04-26",
+    "is_end": "2023-05-17",
+    "is_start": "2018-04-26",
+    "n_e": 3080,
+    "n_is": 1848,
+    "n_oos": 1232,
+    "oos_end": "2026-09-30",
+    "oos_start": "2023-05-18",
+    "wf_blocks": [
+      [
+        "2018-04-26",
+        "2019-04-29"
+      ],
+      [
+        "2019-04-30",
+        "2020-05-03"
+      ],
+      [
+        "2020-05-04",
+        "2021-05-07"
+      ],
+      [
+        "2021-05-08",
+        "2022-05-12"
+      ],
+      [
+        "2022-05-13",
+        "2023-05-17"
+      ]
+    ]
+  },
+  "wf": {
+    "block_choices": [
+      "SMA-126-monthly",
+      "SMA-126-weekly",
+      "SMA-126-weekly",
+      "SMA-126-weekly"
+    ],
+    "n_obs": 1479,
+    "sharpe": 1.1393540764475327
+  }
+}

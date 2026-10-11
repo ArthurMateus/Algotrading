@@ -1,0 +1,132 @@
+{
+  "config_sha256": {
+    "A.toml": "5988b6fdc3c7e7e5114beb618fb8b64e458157093e1519102ad317b3694a67f3",
+    "common.toml": "63d20a25651b9eb7f5ce59b7e6bc5ff2ba0d003e1d179808826da51ae217a433"
+  },
+  "created_utc": "2026-10-11T21:16:48Z",
+  "criteria_sha256": "dd3305010517b3769162476dfcf35c6bea819d672fee25df4777e81c96268425",
+  "data": {
+    "bars_manifest_sha256": {
+      "DBC": "9dedff7e6883237347ac120e35ce439e4927e213afd7f5f15054c6205e5c4959",
+      "EFA": "c71381f2ca8898ca9c591c74cae2ec27ac66ab6234777d23c4769238f12fc98e",
+      "GLD": "8b2f4bdadaff8d6be8109571054713398685d144e0f7a0cb6afd927191571255",
+      "IEF": "0eaa8db6b25d53499d900ddfe546a16101235c3efea42136831f905e8ff7b931",
+      "SPY": "b35c9ae89709c1e2ba666d6ef21d00de328cd5e7d8734340a793fffe5e254382"
+    },
+    "bars_sha256": "fd444b384bdcf32459ca476790acf545d7bafe2ee69138dacd3f08363c8c4b59",
+    "panel_sha256": "89b85a6a7ef400a10010ff7795d70e21b8c70636d2c3c56129819dd681e56b0e",
+    "venue_filters": {
+      "lot": {
+        "DBC": 0.0,
+        "EFA": 0.0,
+        "GLD": 0.0,
+        "IEF": 0.0,
+        "SPY": 0.0
+      },
+      "min_order": {
+        "DBC": 1.0,
+        "EFA": 1.0,
+        "GLD": 1.0,
+        "IEF": 1.0,
+        "SPY": 1.0
+      }
+    },
+    "venue_filters_sha256": "f2d1dad6454c9c7d8758656733e28c8ef6b0405ad4395e05a612ea97deb08880"
+  },
+  "dsr": {
+    "kurtosis": 6.994479472925004,
+    "n_obs": 3460,
+    "n_trials": 12,
+    "skew": -0.5961568510476302,
+    "sr_hat_per_bar": 0.03484372133444842,
+    "sr_trials_per_bar": [
+      0.025528202611404822,
+      0.017992490031928453,
+      0.02554281757481082,
+      0.03354120633167562,
+      0.025185269583459503,
+      0.028795275246261253,
+      0.021073332258515442,
+      0.023678112063186915,
+      0.03064297587391954,
+      0.032440745944350105,
+      0.03484372133444842,
+      0.03124909106553429
+    ],
+    "value": 0.9358725518532545
+  },
+  "git_commit": "cfc3af3dfba0d12be8ebc3b8e698a06f5a0ef455",
+  "is_sharpe": {
+    "SMA-126-monthly": 0.5149808766850655,
+    "SMA-126-weekly": 0.4864421615600595,
+    "SMA-252-monthly": 0.4960639419372848,
+    "SMA-252-weekly": 0.553126928417917,
+    "SMA-63-monthly": 0.3758783762082665,
+    "SMA-63-weekly": 0.33452877870880177,
+    "TSMOM-126-monthly": 0.5324501437603124,
+    "TSMOM-126-weekly": 0.40547965852103635,
+    "TSMOM-252-monthly": 0.4571108234115688,
+    "TSMOM-252-weekly": 0.3998037601197188,
+    "TSMOM-63-monthly": 0.2856219245477477,
+    "TSMOM-63-weekly": 0.4052476531694809
+  },
+  "is_sharpe_spread": {
+    "max": 0.553126928417917,
+    "median": 0.43129524096630256,
+    "min": 0.2856219245477477,
+    "n": 12,
+    "stdev": 0.082875009140216
+  },
+  "market": "A",
+  "rf_available": true,
+  "schema": 1,
+  "selected": {
+    "key": "SMA-252-weekly",
+    "lookback": 252,
+    "rebalance": "weekly",
+    "signal": "SMA"
+  },
+  "selection_rule": "highest IS Sharpe; ties: longer lookback, then monthly (criteria s.2); then TSMOM first",
+  "split": {
+    "e_start": "2007-02-07",
+    "is_end": "2020-11-02",
+    "is_start": "2007-02-07",
+    "n_e": 4943,
+    "n_is": 3460,
+    "n_oos": 1483,
+    "oos_end": "2026-09-30",
+    "oos_start": "2020-11-03",
+    "wf_blocks": [
+      [
+        "2007-02-07",
+        "2009-11-03"
+      ],
+      [
+        "2009-11-04",
+        "2012-08-02"
+      ],
+      [
+        "2012-08-03",
+        "2015-05-06"
+      ],
+      [
+        "2015-05-07",
+        "2018-02-02"
+      ],
+      [
+        "2018-02-05",
+        "2020-11-02"
+      ]
+    ]
+  },
+  "wf": {
+    "block_choices": [
+      "TSMOM-126-monthly",
+      "TSMOM-252-monthly",
+      "TSMOM-252-monthly",
+      "TSMOM-126-monthly"
+    ],
+    "n_obs": 2768,
+    "sharpe": 0.36802499365291813
+  }
+}

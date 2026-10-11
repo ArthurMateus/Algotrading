@@ -1,0 +1,11 @@
+{
+  "created_utc": "2026-10-11T21:16:49Z",
+  "criteria_sha256": "dd3305010517b3769162476dfcf35c6bea819d672fee25df4777e81c96268425",
+  "git_commit": "cfc3af3dfba0d12be8ebc3b8e698a06f5a0ef455",
+  "lookback": 126,
+  "market": "B",
+  "rebalance": "weekly",
+  "signal": "SMA",
+  "source": "is_selection_B.json",
+  "variant": "SMA-126-weekly"
+}
