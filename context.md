@@ -16,10 +16,10 @@ Start here, then read `CLAUDE.md` (rules, pipeline, layout). Everything is **PAP
   `config/{common,A,B}.toml` (common pins the sha256 of the criteria; update it only if the owner changes the
   criteria at GATE 2, before any result exists).
 
-## Waiting on the owner (HUMAN GATE 2)
-- Approve `docs/SPEC.md` + `docs/success-criteria.md`, and decide: 18-month underwater limit (vs "a couple of
-  weeks"), CDI as flag or pass/fail, drawdown limits 20% (A) / 35% (B), the five ETFs (SPY EFA IEF GLD DBC).
-- Then run `/build approved`.
+## HUMAN GATE 2: passed 2026-10-11
+- Owner replied "approved": SPEC.md and success-criteria.md as written (18-month underwater limit, CDI as a
+  reported flag, max drawdown 20% A / 35% B, ETFs SPY EFA IEF GLD DBC, SPEC section 11 interpretations).
+- Phase 4 (build): in progress.
 
 ## Answered at GATE 1
 - Candidate, country, capital, drawdown tolerance: see owner answers below. Tax situation: still open.
