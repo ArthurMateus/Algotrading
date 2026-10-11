@@ -1,0 +1,24 @@
+# Market A: US ETFs, total-return daily bars. docs/success-criteria.md §1-§6.
+[market]
+name = "A"
+instruments = ["SPY", "EFA", "IEF", "GLD", "DBC"]
+sources = ["stooq", "yahoo"]     # tried in order
+periods_per_year = 252           # §3 sigma and Sharpe annualisation
+sigma_target = 0.12              # §3
+is_fraction = 0.70               # §2
+stale_after_days = 5             # Opinion (architect): calendar days without a new bar before entries halt
+
+[costs]                          # §4, multiplied by cost_mult (2.0 in the stress run)
+commission_rate = 0.0
+sec_fee_rate_sell = 0.0000206    # 0.00206% of sell notional
+taf_per_share_sell = 0.000119
+taf_max_per_trade = 5.95
+slippage_rate = 0.0010           # 0.10% per side
+min_order_usd = 1.0              # placeholder (§4)
+
+[thresholds]                     # §6
+sharpe_min = 0.40
+max_dd_max = 0.20
+underwater_months_max = 18
+round_trips_min = 20
+dsr_min = 0.90

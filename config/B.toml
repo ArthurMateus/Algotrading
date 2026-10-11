@@ -1,0 +1,24 @@
+# Market B: Binance spot BTC/ETH, daily 1d klines (00:00 UTC close). docs/success-criteria.md §1-§6.
+[market]
+name = "B"
+instruments = ["BTCUSDT", "ETHUSDT"]
+sources = ["binance_vision"]
+periods_per_year = 365           # §3 sigma and Sharpe annualisation
+sigma_target = 0.40              # §3
+is_fraction = 0.60               # §2
+stale_after_days = 2             # Opinion (architect)
+
+[costs]                          # §4, multiplied by cost_mult (2.0 in the stress run)
+commission_rate = 0.0010         # 0.10% per side taker
+sec_fee_rate_sell = 0.0
+taf_per_share_sell = 0.0
+taf_max_per_trade = 0.0
+slippage_rate = 0.0005           # 0.05% per side
+min_order_usd = 10.0             # fallback only; exchangeInfo NOTIONAL filter overrides it (§4)
+
+[thresholds]                     # §6
+sharpe_min = 0.50
+max_dd_max = 0.35
+underwater_months_max = 18
+round_trips_min = 12
+dsr_min = 0.90

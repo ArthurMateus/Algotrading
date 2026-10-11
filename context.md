@@ -11,14 +11,31 @@ Start here, then read `CLAUDE.md` (rules, pipeline, layout). Everything is **PAP
   B = same engine on BTC/ETH spot (Binance-class fees), E = funding carry spot + short perp as an optional paper
   measurement only if the owner's country gives venue access. Several survey numbers are unverified (marked in the docs).
 
-## Waiting on the owner (HUMAN GATE 1)
-- Which candidate to build (or more research). Full gate question list: `docs/candidates.md` section 7.
-- Country of residence (decides which venues are accessible, tax, licensing): unknown.
-- Starting capital: unknown.
-- Time horizon: unknown.
+- Phase 2 (pre-registration): `docs/success-criteria.md` committed alone in 6711929 (2026-10-11), before any code.
+- Phase 3 (design): `docs/SPEC.md`, skeleton modules in `src/algotrade/` (bodies raise NotImplementedError),
+  `config/{common,A,B}.toml` (common pins the sha256 of the criteria; update it only if the owner changes the
+  criteria at GATE 2, before any result exists).
+
+## Waiting on the owner (HUMAN GATE 2)
+- Approve `docs/SPEC.md` + `docs/success-criteria.md`, and decide: 18-month underwater limit (vs "a couple of
+  weeks"), CDI as flag or pass/fail, drawdown limits 20% (A) / 35% (B), the five ETFs (SPY EFA IEF GLD DBC).
+- Then run `/build approved`.
+
+## Answered at GATE 1
+- Candidate, country, capital, drawdown tolerance: see owner answers below. Tax situation: still open.
 
 ## Owner answers (record here, with the date)
-- (none yet)
+- 2026-10-11 GATE 1: build **A + B** (one daily-bar volatility-scaled trend engine on US ETFs and on BTC/ETH spot).
+  Country: **Brazil**. Starting capital: **$300**. Drawdown tolerance: "a couple of weeks; preferably not big, but I
+  can live with it". Knows the crypto risks. Hours per week and the total time horizon: not given (assume a small
+  weekly effort and a 4-week forward paper test unless told otherwise).
+- Risk-free hurdle for a Brazil resident: CDI/Selic. Selic was cut to 13.75%/yr at the Copom meeting of
+  2026-09-15/16 (https://br.advfn.com/jornal/2026/09/copom-reduz-a-taxa-selic-para-13-75-ao-ano-veja, accessed
+  2026-10-11). Fixed-income gains are taxed (regressive table), so the net hurdle is lower; the exact current rule is
+  an open question for the owner.
+- Alpaca live accounts for Brazil residents: unconfirmed, anecdotally refused
+  (https://forum.alpaca.markets/t/how-to-open-account-for-non-us-resident/2500, accessed 2026-10-11). Irrelevant
+  for paper/backtest; data should come from keyless free sources.
 
 ## Agent models
 - [deep] agents use `opus`; [light] agents (data-engineer, qa-tester, security-reviewer, paper-trading-operator) use

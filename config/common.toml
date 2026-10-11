@@ -1,0 +1,37 @@
+# Shared settings. Pre-registered values come from docs/success-criteria.md (sections in brackets).
+# Unknown keys are an error. tests/test_criteria_config.py checks these values against the criteria file.
+
+[criteria]
+# sha256 of docs/success-criteria.md with CRLF normalised to LF. If the criteria file changes, tests fail.
+sha256 = "dd3305010517b3769162476dfcf35c6bea819d672fee25df4777e81c96268425"
+end_date = "2026-09-30"          # §1 period end
+
+[sim]
+start_equity_usd = 300.0         # §3
+rebalance_band = 0.02            # §3: trade a sleeve only if |dweight| >= 2% of equity (entries/exits always)
+vol_window = 60                  # §3: last 60 daily log returns
+warmup_bars = 252                # §2
+wf_blocks = 5                    # §2
+variant_cap = 12                 # §3, per market
+idle_cash_yield = 0.0            # §3: idle cash earns 0
+
+[grid]                           # §3
+signals = ["TSMOM", "SMA"]
+lookbacks = [63, 126, 252]
+rebalance = ["weekly", "monthly"]
+
+[risk]                           # Opinion (architect), not pre-registered; see docs/SPEC.md
+max_gross_exposure = 1.0
+kill_loss_fraction = 0.50        # halt entries and exit all if equity <= 50% of start equity
+
+[paths]
+data_dir = "data"
+reports_dir = "reports"
+
+[urls]                           # keyless, read-only public endpoints; tests point these at a loopback server
+binance_vision = "https://data.binance.vision"
+binance_api = "https://data-api.binance.vision"
+stooq = "https://stooq.com"
+yahoo = "https://query1.finance.yahoo.com"
+fred = "https://fred.stlouisfed.org"
+bcb_sgs = "https://api.bcb.gov.br"
