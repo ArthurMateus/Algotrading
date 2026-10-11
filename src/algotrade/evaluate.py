@@ -15,13 +15,25 @@ IS writes reports/is_selection_<market>.json (full IS record, read by OOS), repo
 ({"variant": "<key>", "signal", "lookback", "rebalance", ...}; read by paper.py) and reports/backtest-<market>-is.md.
 OOS reads that file (no manual choice possible), is refused a second time unless forced with a reason, and writes
 reports/backtest-<market>-oos.md with the 8-criteria PASS/FAIL table.
+
+Integrity of the one OOS look (reports/skeptic-preflight.md M1-M3):
+  - The OOS lock and the "no IS after OOS" rule read every trace of a prior OOS run (variants.oos_evidence:
+    oos_runs.jsonl, split=oos rows in variants.jsonl, backtest-<market>-oos.md), not one deletable file.
+  - The grid is checked against the fixed variants.PREREGISTERED_KEYS (criteria s.3), never against the config.
+  - is_selection_<market>.json pins the sha256 of config/common.toml + config/<market>.toml, of the cached bar
+    files (data/bars/<market>/manifest.json sha256s), of the panel content actually used, and of the venue filters
+    (minimum order, lot step; for B from exchangeInfo). OOS refuses on any mismatch, and re-derives the selection
+    from the stored 12 IS Sharpes with the selection rule, refusing if `selected` differs.
 pandas is imported inside functions only (tests/test_safety.py).
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import hashlib
 import json
 import math
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -203,10 +215,11 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _inputs(market: str, cfg, panel, aux_fn, min_order, lot):
+def _inputs(market: str, cfg, panel, aux_fn, min_order, lot, config_dir=None):
     from algotrade import data
     from algotrade.config import load_config, verify_criteria
-    cfg = cfg or load_config(market)
+    if cfg is None:
+        cfg = load_config(market) if config_dir is None else load_config(market, config_dir)
     if cfg.name != market:
         raise ValueError(f"config is for market {cfg.name}, not {market}")
     verify_criteria(cfg)
@@ -329,24 +342,183 @@ def _flags(cfg, panel, aux, forced_note: str = "") -> list[str]:
     return out
 
 
+def _sha_json(obj) -> str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _panel_sha256(panel: "Panel") -> str:
+    """sha256 over the panel content actually simulated (open, close, valid incl. dates and symbols)."""
+    import pandas as pd
+    h = hashlib.sha256()
+    for name in ("open", "close", "valid"):
+        df = getattr(panel, name)
+        h.update(name.encode() + b"|" + ",".join(map(str, df.columns)).encode() + b"|")
+        h.update(pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes())
+    h.update(str(panel.adjusted).encode())
+    return h.hexdigest()
+
+
+def data_fingerprint(cfg: "MarketConfig", panel: "Panel", min_order: dict, lot: dict) -> dict:
+    """What the IS selection was computed on: the cached bar files (manifest sha256s; None when no cache manifest
+    exists, e.g. a synthetic test panel), the panel content, and the venue filters used (minimum order notional and
+    lot step; for B these come from data/aux/exchange_info.json)."""
+    man_path = Path(cfg.data_dir) / "bars" / cfg.name / "manifest.json"
+    bars = None
+    if man_path.exists():
+        man = json.loads(man_path.read_text(encoding="utf-8"))
+        bars = {s: (man.get(s) or {}).get("sha256") for s in cfg.instruments}
+    filters = {"min_order": {s: float(v) for s, v in sorted(min_order.items())},
+               "lot": {s: float(v) for s, v in sorted(lot.items())}}
+    return {"bars_manifest_sha256": bars, "bars_sha256": None if bars is None else _sha_json(bars),
+            "panel_sha256": _panel_sha256(panel), "venue_filters": filters,
+            "venue_filters_sha256": _sha_json(filters)}
+
+
+def _config_dir(config_dir) -> Path:
+    from algotrade.config import CONFIG_DIR
+    return Path(CONFIG_DIR if config_dir is None else config_dir)
+
+
+def rederive_selection(is_sharpe: dict) -> str:
+    """Apply the selection rule (select_variant) to the stored IS Sharpes (None = NaN). Refuses unless the keys are
+    exactly the 12 pre-registered variants."""
+    from algotrade.variants import PREREGISTERED_KEYS
+    if set(is_sharpe) != set(PREREGISTERED_KEYS):
+        raise EvaluationRefused(f"the stored IS Sharpes cover {sorted(is_sharpe)}, not the 12 pre-registered "
+                                f"variants {list(PREREGISTERED_KEYS)}; refusing")
+    sh = {_parse_key(k): (float("nan") if v is None else float(v)) for k, v in is_sharpe.items()}
+    return select_variant(sh).key
+
+
+def verify_selection_for_oos(cfg: "MarketConfig", sel: dict, split: Split, fp: dict, config_dir=None) -> None:
+    """Every check that must hold before the one OOS look; raises EvaluationRefused with a clear message."""
+    from algotrade.config import config_files_sha256
+    from algotrade.variants import PREREGISTERED_KEYS
+    name = selection_path(cfg).name
+    m = cfg.name
+    if split.to_dict() != sel.get("split"):
+        raise EvaluationRefused(f"market {m}: the split recomputed from the cached data differs from the one "
+                                f"in {name} (data changed since IS); refusing")
+    want_cfg = sel.get("config_sha256") or {}
+    have_cfg = config_files_sha256(m, _config_dir(config_dir))
+    if want_cfg != have_cfg:
+        changed = sorted(k for k in set(have_cfg) | set(want_cfg) if want_cfg.get(k) != have_cfg.get(k))
+        raise EvaluationRefused(f"market {m}: config file(s) {changed} changed since IS (sha256 pinned in {name}); "
+                                f"refusing OOS. Restore the IS-time config (git) instead of re-selecting")
+    want = sel.get("data") or {}
+    for key, what in (("bars_sha256", "cached bar files (data/bars manifest sha256)"),
+                      ("panel_sha256", "bar prices (panel content)"),
+                      ("venue_filters_sha256", "venue filters (minimum order / lot step; B: exchangeInfo)")):
+        if key not in want or want.get(key) != fp.get(key):
+            raise EvaluationRefused(f"market {m}: the {what} differ from IS ({key} {str(want.get(key))[:12]} in "
+                                    f"{name} vs {str(fp.get(key))[:12]} now); was `fetch` run between IS and OOS? "
+                                    f"refusing")
+    key = (sel.get("selected") or {}).get("key")
+    if key not in PREREGISTERED_KEYS:
+        raise EvaluationRefused(f"market {m}: {name} selects {key!r}, outside the pre-registered grid; refusing")
+    v = _parse_key(key)
+    if (sel["selected"].get("signal"), sel["selected"].get("lookback"), sel["selected"].get("rebalance")) != \
+            (v.signal, v.lookback, v.rebalance):
+        raise EvaluationRefused(f"market {m}: {name} 'selected' fields disagree with its key {key}; refusing")
+    again = rederive_selection(sel.get("is_sharpe") or {})
+    if again != key:
+        raise EvaluationRefused(f"market {m}: re-applying the selection rule to the 12 stored IS Sharpes gives "
+                                f"{again}, but {name} says {key}; refusing")
+    sp = Path(cfg.reports_dir) / SELECTED_FILE.format(market=m)
+    if sp.exists():
+        chosen = json.loads(sp.read_text(encoding="utf-8")).get("variant")
+        if chosen != key:
+            raise EvaluationRefused(f"market {m}: {sp.name} says {chosen}, {name} says {key}; refusing")
+
+
+def sharpe_spread(is_sharpe: dict) -> dict:
+    """min / median / max / sample stdev (ddof=1) of the finite IS Sharpes, and how many were finite."""
+    xs = sorted(float(v) for v in is_sharpe.values() if v is not None and math.isfinite(float(v)))
+    if not xs:
+        return {"n": 0, "min": None, "median": None, "max": None, "stdev": None}
+    return {"n": len(xs), "min": xs[0], "median": statistics.median(xs), "max": xs[-1],
+            "stdev": statistics.stdev(xs) if len(xs) > 1 else None}
+
+
+def _spread_lines(is_sharpe: dict, dsr_value) -> list[str]:
+    s = sharpe_spread(is_sharpe)
+    return [f"Spread of the {len(is_sharpe)} IS Sharpes (annualised; {s['n']} finite): min {_f(s['min'])}, median "
+            f"{_f(s['median'])}, max {_f(s['max'])}, stdev {_f(s['stdev'])} (sample, ddof=1); deflated Sharpe "
+            f"{_f(dsr_value)}. **Opinion:** the trials are highly correlated (2 signals x 3 lookbacks x 2 rebalances "
+            "on the same assets and dates), so the cross-trial variance behind the DSR's SR0 is small and the DSR "
+            "can be generous; read it together with this spread. Criterion 6 itself is unchanged."]
+
+
+def _tie_break_used(is_sharpe: dict, selected_key: str) -> bool:
+    """True if the TSMOM-first final tie-break decided the selection: another signal with the same lookback and
+    rebalance has exactly the same IS Sharpe (both NaN counts as equal)."""
+    v = _parse_key(selected_key)
+    a = is_sharpe.get(selected_key)
+    na = a is None or not math.isfinite(float(a))
+    for k, b in is_sharpe.items():
+        w = _parse_key(k)
+        if k != selected_key and (w.lookback, w.rebalance) == (v.lookback, v.rebalance):
+            nb = b is None or not math.isfinite(float(b))
+            if (na and nb) or (not na and not nb and float(a) == float(b)):
+                return True
+    return False
+
+
+def _disclosure_lines(cfg: "MarketConfig", is_sharpe: dict, selected_key: str, killed: list[str]) -> list[str]:
+    """Non-pre-registered rules (skeptic m5) and the idle-cash pessimism (m6). Reporting only."""
+    th = cfg.thresholds
+    kill_dd = 1.0 - cfg.kill_loss_fraction
+    kill_txt = (f"it fires only after a drawdown of at least {kill_dd * 100:.0f}% from the start equity, which "
+                f"already fails criterion 2 (max drawdown <= {th.max_dd_max * 100:.0f}%), so it cannot change a "
+                "verdict" if kill_dd >= th.max_dd_max else
+                "WARNING: its level is below the criterion-2 limit, so it COULD change a verdict")
+    fired = "it fired: " + ", ".join(killed) if killed else "it did not fire in these runs"
+    tie = _tie_break_used(is_sharpe, selected_key) if selected_key in is_sharpe else False
+    tie_txt = ("WARNING: it DID decide this selection (exact tie across signals); the verdict depends on a rule "
+               "that was not pre-registered" if tie else
+               "it did not decide this selection (no exact tie across signals), so it changed neither the selection "
+               "nor the verdict")
+    return [
+        "## Rules that were not pre-registered (reported only; they cannot change a verdict)", "",
+        f"- Kill switch at {cfg.kill_loss_fraction * 100:.0f}% of start equity (exit all, sticky; Opinion, SPEC s.5): "
+        f"{kill_txt}; {fired}.",
+        f"- Stale-data halt ({cfg.stale_after_days} days; Opinion, SPEC): it never binds in a backtest, because a "
+        "symbol with no bar is skipped as `no_bar` before the risk gate sees it, and every symbol with a bar "
+        "refreshes its last-bar date at the fill. It cannot change a backtest verdict.",
+        f"- TSMOM-first final tie-break (after higher Sharpe, longer lookback, monthly): {tie_txt}.",
+        "",
+        "## Known pessimism: idle cash", "",
+        f"- Idle cash earns {cfg.idle_cash_yield:g} (criteria s.3) while the Sharpe subtracts the T-bill rate, so every "
+        "day in cash scores -rf. The trend strategy sits in cash more than the always-invested benchmark, so this "
+        "tilts criterion 8 (Sharpe vs benchmark) against the strategy. It is pre-registered and unchanged; its size "
+        "was not computed (not a criterion).",
+        "",
+    ]
+
+
 # ---------------------------------------------------------------------------------------------------- IS
 
 def run_is(market: str, *, cfg: "MarketConfig | None" = None, panel: "Panel | None" = None,
            aux_fn: "Callable[[pd.DatetimeIndex], Aux] | None" = None, min_order: dict | None = None,
-           lot: dict | None = None, git_commit: str | None = None) -> dict:
+           lot: dict | None = None, git_commit: str | None = None, config_dir: Path | None = None) -> dict:
     """Run the 12-variant grid on IS (cap enforced, each run logged), WF, selection, DSR (criteria 6, 7).
     Writes reports/is_selection_<market>.json and reports/backtest-<market>-is.md.
 
     The keyword arguments exist for tests (synthetic panel, temp reports dir); the CLI passes none of them."""
     from algotrade import metrics as M
     from algotrade import strategy
-    from algotrade.variants import BENCHMARK_KEY, check_cap, distinct_variants, oos_runs, record_run
+    from algotrade.config import config_files_sha256
+    from algotrade.variants import (BENCHMARK_KEY, PREREGISTERED_KEYS, check_cap, distinct_variants, oos_evidence,
+                                    record_run)
 
-    cfg, panel, aux_fn, min_order, lot = _inputs(market, cfg, panel, aux_fn, min_order, lot)
+    cfg, panel, aux_fn, min_order, lot = _inputs(market, cfg, panel, aux_fn, min_order, lot, config_dir)
     rd = Path(cfg.reports_dir)
-    if oos_runs(rd, market):
-        raise EvaluationRefused(f"market {market}: the OOS run already happened; the IS selection is frozen "
-                                f"(criteria §2: no re-selection after OOS)")
+    evidence = oos_evidence(rd, market)
+    if evidence:
+        raise EvaluationRefused(f"market {market}: the OOS run already happened ({'; '.join(evidence)}); the IS "
+                                f"selection is frozen (criteria §2: no re-selection after OOS)")
+    cfg_sha = config_files_sha256(market, _config_dir(config_dir))
+    fp = data_fingerprint(cfg, panel, min_order, lot)
     commit = git_commit if git_commit is not None else _git_commit()
     split = make_split(panel, cfg)
     aux = aux_fn(panel.close.index)
@@ -355,8 +527,8 @@ def run_is(market: str, *, cfg: "MarketConfig | None" = None, panel: "Panel | No
     window = (split.is_start, split.is_end)
 
     variants = strategy.grid(cfg)
-    keys = [v.key for v in variants]
-    check_cap(rd, market, keys, keys, cfg.variant_cap)
+    keys = [v.key for v in variants]                                   # requested by the config
+    check_cap(rd, market, keys, PREREGISTERED_KEYS, cfg.variant_cap)   # allowed: the fixed criteria s.3 grid
 
     results: dict[str, dict] = {}
     returns: dict[str, "pd.Series"] = {}
@@ -387,6 +559,9 @@ def run_is(market: str, *, cfg: "MarketConfig | None" = None, panel: "Panel | No
     sel = {
         "schema": SELECTION_SCHEMA, "market": market, "created_utc": _now(), "git_commit": commit,
         "criteria_sha256": cfg.criteria_sha256,
+        "config_sha256": cfg_sha,
+        "data": fp,
+        "selection_rule": "highest IS Sharpe; ties: longer lookback, then monthly (criteria s.2); then TSMOM first",
         "selected": {"key": selected.key, "signal": selected.signal, "lookback": selected.lookback,
                      "rebalance": selected.rebalance},
         "split": split.to_dict(),
@@ -394,6 +569,7 @@ def run_is(market: str, *, cfg: "MarketConfig | None" = None, panel: "Panel | No
         "wf": {"sharpe": wf_sharpe, "block_choices": wf_choices, "n_obs": int(len(wf_ret))},
         "dsr": {"value": dsr, "sr_hat_per_bar": sr_hat, "n_obs": n_obs, "skew": skew, "kurtosis": kurt,
                 "n_trials": n_trials, "sr_trials_per_bar": sr_trials},
+        "is_sharpe_spread": sharpe_spread({k: results[k]["sharpe"] for k in keys}),
         "rf_available": bool(aux.rf_available),
     }
     sp = selection_path(cfg)
@@ -409,15 +585,16 @@ def run_is(market: str, *, cfg: "MarketConfig | None" = None, panel: "Panel | No
     c7 = Criterion(7, "Walk-forward series Sharpe", _f(wf_sharpe), f"> {CRIT7_WF_SHARPE_ABOVE:g}",
                    math.isfinite(wf_sharpe) and wf_sharpe > CRIT7_WF_SHARPE_ABOVE, "IS")
     report = rd / f"backtest-{market}-is.md"
+    killed = [f"{k} on {results[k]['killed_on']}" for k in keys if results[k]["killed_on"]]
     _write(report, _is_report(cfg, split, keys, results, bench, selected, wf_choices, wf_sharpe, sel["dsr"],
-                              [c6, c7], _flags(cfg, panel, aux), commit, sp))
+                              [c6, c7], _flags(cfg, panel, aux), commit, sp, sel["is_sharpe"], killed))
     return {"market": market, "selected": selected.key, "split": split.to_dict(), "wf_sharpe": wf_sharpe,
             "dsr": dsr, "criteria": [c6, c7], "report": str(report), "selection_file": str(sp),
             "is_sharpe": sel["is_sharpe"], "benchmark_sharpe": bench["sharpe"]}
 
 
 def _is_report(cfg, split, keys, results, bench, selected, wf_choices, wf_sharpe, dsr, crits, flags, commit,
-               sel_path) -> str:
+               sel_path, is_sharpe, killed) -> str:
     m = cfg.name
     L = [f"# Backtest {m}: in-sample (IS)", "",
          f"Generated {_now()} by `uv run algotrade backtest --market {m} --split is` (commit `{commit}`). "
@@ -435,8 +612,9 @@ def _is_report(cfg, split, keys, results, bench, selected, wf_choices, wf_sharpe
           "(read by the paper runner).", "",
           f"Walk-forward choices for blocks 2..{cfg.wf_blocks}: {', '.join(wf_choices)}; WF Sharpe {_f(wf_sharpe)}.",
           f"DSR inputs (per bar): SR {_f(dsr['sr_hat_per_bar'], 4)}, n_obs {dsr['n_obs']}, skew {_f(dsr['skew'])}, "
-          f"kurtosis {_f(dsr['kurtosis'])}, N trials {dsr['n_trials']}.", "",
-          f"## All {len(keys)} variants on IS (net of x1 costs, start $300 each)", "",
+          f"kurtosis {_f(dsr['kurtosis'])}, N trials {dsr['n_trials']}.", ""]
+    L += _spread_lines(is_sharpe, dsr["value"]) + [""]
+    L += [f"## All {len(keys)} variants on IS (net of x1 costs, start $300 each)", "",
           "| Variant | Sharpe | Max DD | Underwater (mo) | Round trips | CAGR | Costs $ | Final $ |",
           "|---|---|---|---|---|---|---|---|"]
     for k in keys + ["benchmark"]:
@@ -448,7 +626,8 @@ def _is_report(cfg, split, keys, results, bench, selected, wf_choices, wf_sharpe
     L += ["", "Sharpe: mean(r - rf) / sd(ddof=1) x sqrt(%d), rf = DTB3/100/%d per bar." % (
         cfg.periods_per_year, cfg.periods_per_year), "", "## Flags", ""]
     L += [f"- {x}" for x in flags]
-    L += ["", "The OOS window has not been touched by this run."]
+    L += [""] + _disclosure_lines(cfg, is_sharpe, selected.key, killed)
+    L += ["The OOS window has not been touched by this run."]
     return "\n".join(L) + "\n"
 
 
@@ -456,7 +635,8 @@ def _is_report(cfg, split, keys, results, bench, selected, wf_choices, wf_sharpe
 
 def run_oos(market: str, *, force: bool = False, reason: str = "", cfg: "MarketConfig | None" = None,
             panel: "Panel | None" = None, aux_fn: "Callable[[pd.DatetimeIndex], Aux] | None" = None,
-            min_order: dict | None = None, lot: dict | None = None, git_commit: str | None = None) -> dict:
+            min_order: dict | None = None, lot: dict | None = None, git_commit: str | None = None,
+            config_dir: Path | None = None) -> dict:
     """The single OOS run: selected variant at cost_mult 1 and 2, plus the benchmark. Evaluates criteria 1-5 and 8,
     the CDI flag and the reported extras; writes reports/backtest-<market>-oos.md with a PASS/FAIL table.
     Criteria 6 and 7 are read from the IS selection file."""
@@ -464,22 +644,22 @@ def run_oos(market: str, *, force: bool = False, reason: str = "", cfg: "MarketC
 
     from algotrade import metrics as M
     from algotrade import strategy
-    from algotrade.variants import BENCHMARK_KEY, check_oos, oos_runs, record_oos, record_run
+    from algotrade.variants import (BENCHMARK_KEY, SENSITIVITY_PREFIX, check_oos, oos_evidence, oos_runs,
+                                    record_oos, record_run)
 
-    cfg, panel, aux_fn, min_order, lot = _inputs(market, cfg, panel, aux_fn, min_order, lot)
+    cfg, panel, aux_fn, min_order, lot = _inputs(market, cfg, panel, aux_fn, min_order, lot, config_dir)
     rd = Path(cfg.reports_dir)
     sel = load_selection(cfg)
     check_oos(rd, market, force, reason)
     prior = oos_runs(rd, market)
+    evidence = oos_evidence(rd, market)
     split = make_split(panel, cfg)
-    if split.to_dict() != sel["split"]:
-        raise EvaluationRefused(f"market {market}: the split recomputed from the cached data differs from the one "
-                                f"in {selection_path(cfg).name} (data changed since IS); refusing")
+    verify_selection_for_oos(cfg, sel, split, data_fingerprint(cfg, panel, min_order, lot), config_dir)
     variant = _parse_key(sel["selected"]["key"])
     commit = git_commit if git_commit is not None else _git_commit()
-    forced = bool(prior)
+    forced = bool(evidence)
     # Record the use of the OOS window BEFORE simulating: a crash mid-run still counts as the one OOS look.
-    record_oos(rd, market, variant.key, forced, reason, commit)
+    record_oos(rd, market, variant.key, forced, reason, commit, selection_commit=str(sel.get("git_commit", "")))
 
     aux = aux_fn(panel.close.index)
     rf = aux.rf_per_bar
@@ -494,6 +674,17 @@ def run_oos(market: str, *, force: bool = False, reason: str = "", cfg: "MarketC
     record_run(rd, market, variant.key, "oos", 1.0, _log_metrics(h1), commit)
     record_run(rd, market, variant.key, "oos", 2.0, _log_metrics(h2), commit)
     record_run(rd, market, BENCHMARK_KEY, "oos", 1.0, _log_metrics(hb), commit)
+
+    # B only: latency sensitivity (skeptic m1). Same variant, x1 costs, fills at the next bar's CLOSE instead of its
+    # open. Reported only, never a criterion; logged as kind "sensitivity" (not a variant: no cap, no selection).
+    sens = None
+    if "binance_vision" in cfg.sources:
+        close_fill = dataclasses.replace(panel, open=panel.close)
+        skey = f"{SENSITIVITY_PREFIX}close-fill:{variant.key}"
+        rs = _simulate(close_fill, cfg, targets, variant.rebalance, window, 1.0, None, min_order, lot, skey)
+        hs = _headline(rs, rf, ppy)
+        record_run(rd, market, skey, "oos", 1.0, _log_metrics(hs), commit, kind="sensitivity")
+        sens = {"key": skey, **hs}
 
     def num(x):
         return float("nan") if x is None else float(x)
@@ -510,17 +701,19 @@ def run_oos(market: str, *, force: bool = False, reason: str = "", cfg: "MarketC
 
     forced_note = ""
     if forced:
-        forced_note = (f"**FORCED OOS RERUN #{len(prior) + 1}** (reason: {reason!r}). The OOS window had already "
-                       f"been used {len(prior)} time(s); treat this result with extra suspicion.")
+        n_prior = max(len(prior), 1)
+        forced_note = (f"**FORCED OOS RERUN #{n_prior + 1}** (reason: {reason!r}). The OOS window had already "
+                       f"been used ({'; '.join(evidence)}); treat this result with extra suspicion.")
     report = rd / f"backtest-{market}-oos.md"
     _write(report, _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb, cdi,
-                               _flags(cfg, panel, aux, forced_note), commit))
+                               _flags(cfg, panel, aux, forced_note), commit, sens))
     return {"market": market, "selected": variant.key, "passed": passed, "criteria": crits,
             "metrics": {"x1": h1, "x2": h2, "benchmark": hb}, "cdi": cdi, "forced": forced,
-            "report": str(report)}
+            "sensitivity": sens, "report": str(report)}
 
 
-def _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb, cdi, flags, commit) -> str:
+def _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb, cdi, flags, commit,
+                sens=None) -> str:
     m = cfg.name
     verdict = "PASS (all 8 criteria hold)" if passed else \
         f"FAIL (NO-GO for market {m}: criteria {', '.join(str(c.num) for c in crits if not c.passed)} failed)"
@@ -566,6 +759,14 @@ def _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb,
     for name, r in (("strategy x1", r1), ("strategy x2", r2), ("benchmark", rb)):
         if r.killed_on:
             L.append(f"Kill switch fired for the {name} on {r.killed_on} (Opinion rule, SPEC §5).")
+    if sens is not None:
+        L += ["", "## Latency sensitivity (sensitivity, reported only, not a criterion)", "",
+              f"Same variant {variant.key}, x1 costs, fills at the next bar's CLOSE instead of its open (about one "
+              f"day of delay after the 00:00 UTC signal): Sharpe {_f(sens['sharpe'])} (vs {_f(h1['sharpe'])} at the "
+              f"open), max drawdown {_f(sens['max_dd'], pct=True)} (vs {_f(h1['max_dd'], pct=True)}), final equity "
+              f"${_f(sens['final_equity'], 2)} (vs ${_f(h1['final_equity'], 2)}). Logged in variants.jsonl as "
+              f"`{sens['key']}` (kind sensitivity): not a variant, not counted in the cap, never used for selection, "
+              "and it does not change any verdict above."]
     L += ["", "## BRL / CDI flag (criteria §5; a flag, not pass/fail)", ""]
     if cdi["available"]:
         L.append(f"Strategy x1 equity converted to BRL at PTAX: CAGR {_f(cdi['brl_cagr'], pct=True)} vs compounded "
@@ -574,6 +775,10 @@ def _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb,
     else:
         L.append("insufficient data (PTAX or CDI missing for the window).")
     L += ["", "## Flags", ""] + [f"- {x}" for x in flags if not x.startswith("**FORCED")]
+    L += [""] + _spread_lines(sel.get("is_sharpe") or {}, sel["dsr"]["value"]) + [""]
+    killed = [f"{n} on {r.killed_on}" for n, r in (("strategy x1", r1), ("strategy x2", r2), ("benchmark", rb))
+              if r.killed_on]
+    L += _disclosure_lines(cfg, sel.get("is_sharpe") or {}, variant.key, killed)
     L += ["", f"IS criteria 6 and 7 come from `{SELECTION_FILE.format(market=m)}` (DSR N = "
           f"{sel['dsr']['n_trials']} distinct variants logged). Sharpe annualised with sqrt({cfg.periods_per_year})."]
     return "\n".join(L) + "\n"
@@ -584,7 +789,7 @@ def _oos_report(cfg, split, variant, sel, crits, passed, h1, h2, hb, r1, r2, rb,
 def status(reports_dir: Path | None = None) -> str:
     """Plain-words summary: variants used per market, the selection, whether OOS has run."""
     from algotrade.config import load_config
-    from algotrade.variants import distinct_variants, oos_runs
+    from algotrade.variants import distinct_variants, oos_evidence, oos_runs
     lines = []
     for m in ("A", "B"):
         cfg = load_config(m)
@@ -598,6 +803,8 @@ def status(reports_dir: Path | None = None) -> str:
             except (ValueError, KeyError):
                 sel = "unreadable"
         oos = oos_runs(rd, m)
-        oos_txt = "not run" if not oos else f"run {len(oos)} time(s), first {oos[0].get('ts')}"
+        ev = oos_evidence(rd, m)
+        oos_txt = "not run" if not ev else (f"run {len(oos)} time(s), first {oos[0].get('ts')}" if oos else
+                                            f"used ({'; '.join(ev)})")
         lines.append(f"[{m}] variants used {used}/{cfg.variant_cap}; IS selection: {sel}; OOS: {oos_txt}")
     return "\n".join(lines)

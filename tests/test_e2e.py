@@ -74,8 +74,8 @@ def world(tmp_path, monkeypatch):
             cfg = real_load(market, *a, **k)
             return dataclasses.replace(
                 cfg, data_dir=tmp_path / "data", reports_dir=tmp_path / "reports",
-                urls={u: srv.url for u in cfg.urls}, end_date=END.isoformat(), warmup_bars=30, vol_window=10,
-                grid_lookbacks=(5, 10, 20))
+                urls={u: srv.url for u in cfg.urls}, end_date=END.isoformat(), warmup_bars=30, vol_window=10)
+                # the real grid (63/126/252): run_is refuses any key outside variants.PREREGISTERED_KEYS
         monkeypatch.setattr(config, "load_config", patched)
         yield tmp_path, srv
     assert (_tree_digest(real_data), _tree_digest(real_reports)) == before, "the real data/ or reports/ changed"

@@ -8,20 +8,21 @@ import pandas as pd
 import pytest
 
 from algotrade import cli, evaluate
-from algotrade.config import load_config
+from algotrade.config import CONFIG_DIR, config_files_sha256, load_config
 from algotrade.data import Aux, Panel, build_panel
 from algotrade.evaluate import (CRIT5_X2_SHARPE_ABOVE, CRIT7_WF_SHARPE_ABOVE, EvaluationRefused, Split,
                                 evaluate_criteria, make_split, select_variant, walk_forward)
 from algotrade.paper import selected_variant
 from algotrade.strategy import Variant
-from algotrade.variants import OOSAlreadyRunError, VariantCapError, oos_runs, runs
+from algotrade.variants import (PREREGISTERED_KEYS, OOSAlreadyRunError, VariantCapError, distinct_variants,
+                                oos_runs, runs)
 from tests.synth import synth_market
 
 
 def small_cfg(tmp_path, market="B", **kw):
-    """The real config with a temp reports dir and a scaled-down warm-up / grid so tests are fast."""
-    base = dict(reports_dir=tmp_path, data_dir=tmp_path / "data", warmup_bars=30, vol_window=10,
-                grid_lookbacks=(5, 10, 20))
+    """The real config (real pre-registered grid) with a temp reports dir and a scaled-down warm-up so tests are
+    fast. The grid cannot be scaled down: run_is checks it against the fixed variants.PREREGISTERED_KEYS."""
+    base = dict(reports_dir=tmp_path, data_dir=tmp_path / "data", warmup_bars=60, vol_window=10)
     base.update(kw)
     return dataclasses.replace(load_config(market), **base)
 
@@ -33,7 +34,7 @@ def synth_aux(index):
                cdi_daily=pd.Series(0.0004, index=idx), cdi_business_day=bday)
 
 
-def synth_panel(cfg, n=330, seed=11):
+def synth_panel(cfg, n=700, seed=11):
     return build_panel(synth_market(list(cfg.instruments), "2020-01-01", n, seed=seed, daily=True), "2030-01-01")
 
 
@@ -179,9 +180,21 @@ def test_is_then_oos_once(tmp_path):
     for n in range(1, 9):
         assert f"| {n} | " in md
     assert "Cost breakdown" in md and "below the venue minimum" in md and "FORCED" not in md
-    oos_logged = [r for r in runs(tmp_path, "B") if r["split"] == "oos"]
+    oos_logged = [r for r in runs(tmp_path, "B") if r["split"] == "oos" and r["kind"] != "sensitivity"]
     assert sorted((r["key"] == "benchmark", r["cost_mult"]) for r in oos_logged) == \
         [(False, 1.0), (False, 2.0), (True, 1.0)]
+    # B latency sensitivity: logged once as a non-variant run, reported, not in the cap or the selection
+    sens = [r for r in runs(tmp_path, "B") if r.get("kind") == "sensitivity"]
+    assert len(sens) == 1 and sens[0]["key"] == f"sensitivity:close-fill:{out['selected']}"
+    assert sens[0]["split"] == "oos" and sens[0]["cost_mult"] == 1.0
+    assert len(distinct_variants(tmp_path, "B")) == 12
+    assert res["sensitivity"]["key"] == sens[0]["key"]
+    assert "sensitivity, reported only, not a criterion" in md
+    for text in (is_md, md):
+        assert "not pre-registered" in text and "Kill switch at 50%" in text and "Stale-data halt" in text
+        assert "TSMOM-first final tie-break" in text and "cannot change a verdict" in text
+        assert "Idle cash earns 0" in text and "subtracts the T-bill" in text
+        assert "Spread of the 12 IS Sharpes" in text and "highly correlated" in text and "stdev" in text
 
     # the OOS window is touched once
     with pytest.raises(OOSAlreadyRunError):
@@ -211,7 +224,7 @@ def test_is_rerun_is_deterministic_and_does_not_add_variants(tmp_path):
 def test_oos_refuses_if_the_data_changed_since_is(tmp_path):
     cfg = small_cfg(tmp_path)
     evaluate.run_is("B", **kw(cfg, synth_panel(cfg)))
-    longer = synth_panel(cfg, n=360)
+    longer = synth_panel(cfg, n=730)
     with pytest.raises(EvaluationRefused):
         evaluate.run_oos("B", **kw(cfg, longer))
     assert oos_runs(tmp_path, "B") == []                                 # a refused run does not use the window
@@ -221,9 +234,207 @@ def test_variant_cap_refuses_a_new_grid(tmp_path):
     cfg = small_cfg(tmp_path)
     panel = synth_panel(cfg)
     evaluate.run_is("B", **kw(cfg, panel))
-    other = dataclasses.replace(cfg, grid_lookbacks=(5, 10, 30))         # a 13th+ distinct variant
+    other = dataclasses.replace(cfg, grid_lookbacks=(63, 126, 200))      # a 13th+ distinct variant
     with pytest.raises(VariantCapError):
         evaluate.run_is("B", **kw(other, panel))
+
+
+# ---------------------------------------------------------------- skeptic pre-flight M1: the OOS lock has 3 traces
+
+def _is_and_oos(tmp_path, market="B"):
+    cfg = small_cfg(tmp_path, market)
+    panel = synth_panel(cfg)
+    evaluate.run_is(market, **kw(cfg, panel))
+    evaluate.run_oos(market, **kw(cfg, panel))
+    return cfg, panel
+
+
+def test_deleting_oos_runs_jsonl_still_refuses_oos_and_is(tmp_path):
+    cfg, panel = _is_and_oos(tmp_path)
+    (tmp_path / "oos_runs.jsonl").unlink()
+    with pytest.raises(OOSAlreadyRunError, match="variants.jsonl"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    with pytest.raises(EvaluationRefused, match="OOS run already happened"):
+        evaluate.run_is("B", **kw(cfg, panel))
+    # with the OOS report also gone, the split=oos rows in variants.jsonl alone still lock it
+    (tmp_path / "backtest-B-oos.md").unlink()
+    with pytest.raises(OOSAlreadyRunError):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    with pytest.raises(EvaluationRefused):
+        evaluate.run_is("B", **kw(cfg, panel))
+    assert "OOS: used" in evaluate.status(tmp_path)
+    # a forced rerun is still possible, and is flagged as forced although oos_runs.jsonl was deleted
+    forced = evaluate.run_oos("B", force=True, reason="test", **kw(cfg, panel))
+    assert forced["forced"]
+    assert "FORCED OOS RERUN #2" in (tmp_path / "backtest-B-oos.md").read_text(encoding="utf-8")
+
+
+def test_the_oos_report_alone_locks_oos_and_is(tmp_path):
+    cfg, panel = _is_and_oos(tmp_path)
+    for f in ("oos_runs.jsonl", "variants.jsonl"):
+        (tmp_path / f).unlink()
+    with pytest.raises(OOSAlreadyRunError, match="backtest-B-oos.md"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    with pytest.raises(EvaluationRefused):
+        evaluate.run_is("B", **kw(cfg, panel))
+
+
+# ---------------------------------------------------------------- M2: fixed grid, pinned config files
+
+def test_run_is_refuses_a_config_grid_outside_the_preregistered_one(tmp_path):
+    cfg = small_cfg(tmp_path, grid_lookbacks=(5, 10, 20))               # 12 keys, all outside criteria s.3
+    with pytest.raises(VariantCapError, match="outside the pre-registered grid"):
+        evaluate.run_is("B", **kw(cfg, synth_panel(cfg)))
+    assert runs(tmp_path, "B") == [] and not (tmp_path / "is_selection_B.json").exists()
+
+
+def test_selection_pins_config_hashes_and_line_endings_do_not_matter(tmp_path):
+    cfg = small_cfg(tmp_path)
+    evaluate.run_is("B", **kw(cfg, synth_panel(cfg)))
+    sel = json.loads((tmp_path / "is_selection_B.json").read_text(encoding="utf-8"))
+    assert sel["config_sha256"] == config_files_sha256("B", CONFIG_DIR)
+    assert set(sel["config_sha256"]) == {"common.toml", "B.toml"}
+    lf, crlf = tmp_path / "lf", tmp_path / "crlf"
+    for d, nl in ((lf, b"\n"), (crlf, b"\r\n")):
+        d.mkdir()
+        for name in ("common.toml", "B.toml"):
+            raw = (CONFIG_DIR / name).read_bytes().replace(b"\r\n", b"\n")
+            (d / name).write_bytes(raw.replace(b"\n", nl))
+    assert config_files_sha256("B", lf) == config_files_sha256("B", crlf) == sel["config_sha256"]
+
+
+def test_oos_refuses_an_edited_config(tmp_path):
+    cdir = tmp_path / "config"
+    cdir.mkdir()
+    for name in ("common.toml", "B.toml"):
+        (cdir / name).write_bytes((CONFIG_DIR / name).read_bytes())
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    evaluate.run_is("B", config_dir=cdir, **kw(cfg, panel))
+    txt = (cdir / "B.toml").read_text(encoding="utf-8")
+    assert "sigma_target = 0.40" in txt
+    (cdir / "B.toml").write_text(txt.replace("sigma_target = 0.40", "sigma_target = 0.30"), encoding="utf-8")
+    with pytest.raises(EvaluationRefused, match=r"config file\(s\) \['B.toml'\] changed since IS"):
+        evaluate.run_oos("B", config_dir=cdir, **kw(cfg, panel))
+    assert oos_runs(tmp_path, "B") == [] and not [r for r in runs(tmp_path, "B") if r["split"] == "oos"]
+
+
+# ---------------------------------------------------------------- M3: data, venue filters, selection re-derived
+
+def _write_manifest(cfg, shas):
+    d = cfg.data_dir / "bars" / cfg.name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "manifest.json").write_text(json.dumps({s: {"sha256": h} for s, h in shas.items()}), encoding="utf-8")
+
+
+def test_oos_refuses_if_the_cached_bar_files_changed(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    _write_manifest(cfg, {"BTCUSDT": "a" * 64, "ETHUSDT": "b" * 64})
+    evaluate.run_is("B", **kw(cfg, panel))
+    sel = json.loads((tmp_path / "is_selection_B.json").read_text(encoding="utf-8"))
+    assert sel["data"]["bars_manifest_sha256"] == {"BTCUSDT": "a" * 64, "ETHUSDT": "b" * 64}
+    _write_manifest(cfg, {"BTCUSDT": "a" * 64, "ETHUSDT": "c" * 64})        # e.g. a re-fetch
+    with pytest.raises(EvaluationRefused, match="cached bar files"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    assert oos_runs(tmp_path, "B") == []
+
+
+def test_oos_refuses_if_prices_changed_with_the_same_dates(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    evaluate.run_is("B", **kw(cfg, panel))
+    close = panel.close.copy()
+    close.iloc[-5, 0] *= 1.01                                           # rewritten history, same calendar
+    changed = Panel(open=panel.open, close=close, valid=panel.valid, adjusted=panel.adjusted)
+    assert make_split(changed, cfg) == make_split(panel, cfg)
+    with pytest.raises(EvaluationRefused, match="panel content"):
+        evaluate.run_oos("B", **kw(cfg, changed))
+    assert oos_runs(tmp_path, "B") == []
+
+
+def test_oos_refuses_if_the_venue_filters_changed(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    evaluate.run_is("B", **kw(cfg, panel))
+    k = kw(cfg, panel)
+    k["min_order"] = {s: 10.0 for s in cfg.instruments}                 # exchangeInfo NOTIONAL changed
+    with pytest.raises(EvaluationRefused, match="venue filters"):
+        evaluate.run_oos("B", **k)
+    assert oos_runs(tmp_path, "B") == []
+
+
+def _edit_selection(tmp_path, fn):
+    p = tmp_path / "is_selection_B.json"
+    sel = json.loads(p.read_text(encoding="utf-8"))
+    fn(sel)
+    p.write_text(json.dumps(sel), encoding="utf-8")
+
+
+def _set_selected_file(tmp_path, key):
+    sp = tmp_path / "selected-B.json"
+    chosen = json.loads(sp.read_text(encoding="utf-8"))
+    chosen["variant"] = key
+    sp.write_text(json.dumps(chosen), encoding="utf-8")
+
+
+def test_oos_refuses_a_hand_edited_selection(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    out = evaluate.run_is("B", **kw(cfg, panel))
+    other = next(k for k in PREREGISTERED_KEYS if k != out["selected"])
+    v = evaluate._parse_key(other)
+
+    def swap(sel):
+        sel["selected"] = {"key": other, "signal": v.signal, "lookback": v.lookback, "rebalance": v.rebalance}
+    _edit_selection(tmp_path, swap)
+    _set_selected_file(tmp_path, other)
+    with pytest.raises(EvaluationRefused, match="re-applying the selection rule"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    assert oos_runs(tmp_path, "B") == []
+
+
+def test_oos_refuses_edited_is_sharpes(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    out = evaluate.run_is("B", **kw(cfg, panel))
+    other = next(k for k in PREREGISTERED_KEYS if k != out["selected"])
+    _edit_selection(tmp_path, lambda sel: sel["is_sharpe"].__setitem__(other, 99.0))
+    with pytest.raises(EvaluationRefused, match=f"gives {other}"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    _edit_selection(tmp_path, lambda sel: sel["is_sharpe"].pop(other))  # only 11 Sharpes: refused too
+    with pytest.raises(EvaluationRefused, match="pre-registered"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    assert oos_runs(tmp_path, "B") == []
+
+
+def test_oos_refuses_if_the_selected_file_disagrees(tmp_path):
+    cfg = small_cfg(tmp_path)
+    panel = synth_panel(cfg)
+    out = evaluate.run_is("B", **kw(cfg, panel))
+    _set_selected_file(tmp_path, next(k for k in PREREGISTERED_KEYS if k != out["selected"]))
+    with pytest.raises(EvaluationRefused, match="selected-B.json"):
+        evaluate.run_oos("B", **kw(cfg, panel))
+    assert oos_runs(tmp_path, "B") == []
+
+
+def test_rederive_selection_and_sharpe_spread():
+    sh = {k: 0.1 for k in PREREGISTERED_KEYS}
+    sh["SMA-126-weekly"] = 0.5
+    assert evaluate.rederive_selection(sh) == "SMA-126-weekly"
+    sh["SMA-126-weekly"] = None                                         # NaN last; tie -> 252, monthly, TSMOM
+    assert evaluate.rederive_selection(sh) == "TSMOM-252-monthly"
+    with pytest.raises(EvaluationRefused):
+        evaluate.rederive_selection({"TSMOM-252-monthly": 0.1})
+    sp = evaluate.sharpe_spread({"a": 1.0, "b": 3.0, "c": 2.0, "d": None, "e": float("nan")})
+    assert sp == {"n": 3, "min": 1.0, "median": 2.0, "max": 3.0, "stdev": 1.0}
+
+
+def test_market_a_has_no_latency_sensitivity_run(tmp_path):
+    _is_and_oos(tmp_path, "A")
+    assert not [r for r in runs(tmp_path, "A") if r.get("kind") == "sensitivity"]
+    md = (tmp_path / "backtest-A-oos.md").read_text(encoding="utf-8")
+    assert "Latency sensitivity" not in md and "not pre-registered" in md
 
 
 def test_status_reports_temp_dir(tmp_path):

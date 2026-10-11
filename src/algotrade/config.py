@@ -182,6 +182,18 @@ def criteria_sha256(path: Path | None = None) -> str:
     return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
+def config_files_sha256(market: str, config_dir: Path = CONFIG_DIR) -> dict[str, str]:
+    """sha256 of `common.toml` and `<market>.toml` (CRLF normalised to LF), keyed by file name. Pinned in the IS
+    selection file; the OOS run refuses if either differs (an edited grid, sigma*, cost, split or threshold)."""
+    out = {}
+    for name in ("common.toml", f"{market}.toml"):
+        p = Path(config_dir) / name
+        if not p.exists():
+            raise ConfigError(f"config file not found: {p}")
+        out[name] = hashlib.sha256(p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    return out
+
+
 def verify_criteria(cfg: MarketConfig, path: Path | None = None) -> None:
     """Raise ConfigError if the criteria file no longer matches the pinned hash."""
     actual = criteria_sha256(path)

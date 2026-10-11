@@ -8,7 +8,14 @@ OOS runs are recorded in reports/oos_runs.jsonl; a second OOS run for a market i
 forced run is logged with its reason and flagged in the report.
 
 Benchmark runs are logged with key "benchmark" (BENCHMARK_KEY); that key is not a strategy variant and does not
-count towards the cap.
+count towards the cap. Sensitivity runs (kind "sensitivity", key prefix SENSITIVITY_PREFIX; e.g. B's close-fill
+latency check) are reported only: they do not count towards the cap and are never used for selection.
+
+The pre-registered grid is the fixed constant PREREGISTERED_KEYS (docs/success-criteria.md s.3), NOT the config being
+run: an edited config grid is refused by `check_cap` even before the cap would bind.
+
+The OOS lock does not rest on one file: `oos_evidence` also reads variants.jsonl (`split == "oos"` rows) and looks for
+reports/backtest-<market>-oos.md. Deleting oos_runs.jsonl alone does not re-open OOS or IS re-selection.
 """
 from __future__ import annotations
 
@@ -22,6 +29,16 @@ VARIANTS_JSONL = "variants.jsonl"
 VARIANTS_MD = "variants.md"
 OOS_JSONL = "oos_runs.jsonl"
 BENCHMARK_KEY = "benchmark"
+SENSITIVITY_PREFIX = "sensitivity:"
+OOS_REPORT = "backtest-{market}-oos.md"
+
+# docs/success-criteria.md s.3 grid, copied here on purpose (tests/test_variants.py checks it against the criteria
+# text). Never derived from config/*.toml, so an edited config cannot widen or change the grid.
+PREREGISTERED_SIGNALS = ("TSMOM", "SMA")
+PREREGISTERED_LOOKBACKS = (63, 126, 252)
+PREREGISTERED_REBALANCE = ("weekly", "monthly")
+PREREGISTERED_KEYS = tuple(f"{s}-{lb}-{r}" for s in PREREGISTERED_SIGNALS for lb in PREREGISTERED_LOOKBACKS
+                           for r in PREREGISTERED_REBALANCE)
 
 _MD_HEADER = (
     "# Variant log\n\n"
@@ -100,13 +117,19 @@ def runs(reports_dir: Path, market: str | None = None) -> list[dict]:
     return [r for r in rows if market is None or r.get("market") == market]
 
 
+def _is_variant_row(r: dict) -> bool:
+    key = str(r.get("key", ""))
+    return key != BENCHMARK_KEY and not key.startswith(SENSITIVITY_PREFIX) and r.get("kind") != "sensitivity"
+
+
 def distinct_variants(reports_dir: Path, market: str) -> set[str]:
-    """Distinct strategy variant keys logged for `market` (the benchmark key excluded)."""
-    return {r["key"] for r in runs(reports_dir, market) if r.get("key") != BENCHMARK_KEY}
+    """Distinct strategy variant keys logged for `market` (benchmark and sensitivity runs excluded)."""
+    return {r["key"] for r in runs(reports_dir, market) if _is_variant_row(r)}
 
 
-def check_cap(reports_dir: Path, market: str, keys: list[str], allowed: list[str], cap: int) -> None:
-    """Raise VariantCapError if any key is not in `allowed` or distinct keys would exceed `cap`."""
+def check_cap(reports_dir: Path, market: str, keys: list[str], allowed, cap: int) -> None:
+    """Raise VariantCapError if any key is not in `allowed` or distinct keys would exceed `cap`.
+    evaluate.run_is passes the keys requested by the config and `allowed=PREREGISTERED_KEYS`."""
     bad = [k for k in keys if k not in set(allowed)]
     if bad:
         raise VariantCapError(f"market {market}: variant(s) outside the pre-registered grid: {sorted(set(bad))}")
@@ -119,11 +142,17 @@ def check_cap(reports_dir: Path, market: str, keys: list[str], allowed: list[str
 
 
 def record_run(reports_dir: Path, market: str, key: str, split: str, cost_mult: float,
-               metrics: dict[str, float], git_commit: str) -> None:
-    """Append to variants.jsonl and variants.md."""
+               metrics: dict[str, float], git_commit: str, kind: str | None = None) -> None:
+    """Append to variants.jsonl and variants.md. `kind`: "variant" | "benchmark" | "sensitivity" (default from the
+    key). A sensitivity run must use a key starting with SENSITIVITY_PREFIX, so it can never pass for a variant."""
     reports_dir = Path(reports_dir)
+    if kind is None:
+        kind = "benchmark" if key == BENCHMARK_KEY else (
+            "sensitivity" if key.startswith(SENSITIVITY_PREFIX) else "variant")
+    if (kind == "sensitivity") != key.startswith(SENSITIVITY_PREFIX):
+        raise ValueError(f"sensitivity runs need a key starting with {SENSITIVITY_PREFIX!r} (got {key!r}, {kind!r})")
     ts = _now()
-    row = {"ts": ts, "git_commit": git_commit, "market": market, "key": key, "split": split,
+    row = {"ts": ts, "git_commit": git_commit, "market": market, "key": key, "split": split, "kind": kind,
            "cost_mult": float(cost_mult), "metrics": {str(k): _clean(v) for k, v in metrics.items()}}
     _append(reports_dir / VARIANTS_JSONL, json.dumps(row, sort_keys=True, ensure_ascii=True) + "\n")
     md = reports_dir / VARIANTS_MD
@@ -138,20 +167,40 @@ def oos_runs(reports_dir: Path, market: str) -> list[dict]:
     return [r for r in _read_jsonl(Path(reports_dir) / OOS_JSONL) if r.get("market") == market]
 
 
-def check_oos(reports_dir: Path, market: str, force: bool, reason: str = "") -> None:
-    """Raise OOSAlreadyRunError if an OOS run exists and not force; with force, require a non-empty reason."""
+def oos_evidence(reports_dir: Path, market: str) -> list[str]:
+    """Every independent trace that the market's OOS window was already used (empty list = never used):
+    rows in oos_runs.jsonl, `split == "oos"` rows in variants.jsonl, and an existing backtest-<market>-oos.md."""
+    reports_dir = Path(reports_dir)
+    out = []
     prior = oos_runs(reports_dir, market)
-    if not prior:
+    if prior:
+        out.append(f"{OOS_JSONL}: {len(prior)} run(s), first {prior[0].get('ts')}")
+    logged = [r for r in runs(reports_dir, market) if r.get("split") == "oos"]
+    if logged:
+        out.append(f"{VARIANTS_JSONL}: {len(logged)} split=oos row(s), first {logged[0].get('ts')}")
+    rep = reports_dir / OOS_REPORT.format(market=market)
+    if rep.exists():
+        out.append(f"{rep.name} exists")
+    return out
+
+
+def check_oos(reports_dir: Path, market: str, force: bool, reason: str = "") -> None:
+    """Raise OOSAlreadyRunError if any OOS evidence exists (see `oos_evidence`) and not force; with force, require
+    a non-empty reason."""
+    evidence = oos_evidence(reports_dir, market)
+    if not evidence:
         return
     if not force:
-        raise OOSAlreadyRunError(f"market {market}: the OOS window was already used on {prior[0].get('ts')} "
-                                 f"({len(prior)} run(s)); rerun only with --force --reason")
+        raise OOSAlreadyRunError(f"market {market}: the OOS window was already used ({'; '.join(evidence)}); "
+                                 f"rerun only with --force --reason")
     if not reason.strip():
         raise OOSAlreadyRunError(f"market {market}: a forced OOS rerun needs a non-empty --reason")
 
 
-def record_oos(reports_dir: Path, market: str, key: str, forced: bool, reason: str, git_commit: str) -> None:
+def record_oos(reports_dir: Path, market: str, key: str, forced: bool, reason: str, git_commit: str,
+               selection_commit: str = "") -> None:
+    """Append one row to oos_runs.jsonl. `selection_commit` is the git commit stored in the IS selection file."""
     n = len(oos_runs(reports_dir, market)) + 1
     row = {"ts": _now(), "market": market, "key": key, "forced": bool(forced), "reason": reason,
-           "git_commit": git_commit, "run_number": n}
+           "git_commit": git_commit, "run_number": n, "selection_commit": selection_commit}
     _append(Path(reports_dir) / OOS_JSONL, json.dumps(row, sort_keys=True, ensure_ascii=True) + "\n")
