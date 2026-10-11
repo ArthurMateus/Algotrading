@@ -19,7 +19,17 @@ Start here, then read `CLAUDE.md` (rules, pipeline, layout). Everything is **PAP
 ## HUMAN GATE 2: passed 2026-10-11
 - Owner replied "approved": SPEC.md and success-criteria.md as written (18-month underwater limit, CDI as a
   reported flag, max drawdown 20% A / 35% B, ETFs SPY EFA IEF GLD DBC, SPEC section 11 interpretations).
-- Phase 4 (build): in progress.
+- Phase 4 (build): done 2026-10-11. 292 tests (incl. safety, replay, backtest-vs-paper agreement, e2e).
+- Phase 5 (validate): done 2026-10-11. IS selections committed in 122acf3, one-time OOS in 3792509.
+  A (SMA-252-weekly): FAIL criteria 3, 8. B (SMA-126-weekly): FAIL criteria 1, 8. Post-run skeptic
+  (`reports/skeptic.md`): FAILs stand under every perturbation. Security review PASS (`reports/security.md`).
+  OOS windows are now USED: any further study needs a new pre-registration and new data; 24 variants already spent.
+- Phase 6 (forward paper): NOT run (Phase 5 failed).
+- Phase 7 (verdict): `reports/VERDICT.md` = NO-GO for both markets.
+
+## Waiting on the owner (HUMAN GATE 3)
+- Decide what happens next (stop / new pre-registered study / other). Nothing goes beyond paper mode without the
+  owner's explicit written approval.
 
 ## Answered at GATE 1
 - Candidate, country, capital, drawdown tolerance: see owner answers below. Tax situation: still open.
