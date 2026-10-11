@@ -97,6 +97,37 @@ def _status() -> int:
     return 0
 
 
+def _backtest(args) -> int:
+    """`backtest --market A|B --split is|oos [--force --reason "..."]` (owner of this wiring: backtest-engineer).
+    Exit 0 ok, 1 refused (cap, OOS already run, missing IS selection, data changed), 2 bad arguments."""
+    from algotrade import evaluate
+    from algotrade.variants import OOSAlreadyRunError, VariantCapError
+
+    if args.split == "is" and (args.force or args.reason):
+        print("--force/--reason apply only to --split oos")
+        return 2
+    if args.force and not args.reason.strip():
+        print("--force needs --reason \"...\"")
+        return 2
+    try:
+        if args.split == "is":
+            out = evaluate.run_is(args.market)
+            print(f"[{args.market}] IS {out['split']['is_start']}..{out['split']['is_end']}: selected "
+                  f"{out['selected']} (IS Sharpe {out['is_sharpe'][out['selected']]:.3f})")
+        else:
+            out = evaluate.run_oos(args.market, force=args.force, reason=args.reason)
+            print(f"[{args.market}] OOS {'FORCED RERUN ' if out['forced'] else ''}variant {out['selected']}: "
+                  f"{'PASS' if out['passed'] else 'FAIL'}")
+        for c in out["criteria"]:
+            print(f"  {c.num}. {c.name} [{c.where}]: {c.value} (needs {c.threshold}) "
+                  f"{'PASS' if c.passed else 'FAIL'}")
+        print(f"  report: {out['report']}")
+    except (VariantCapError, OOSAlreadyRunError, evaluate.EvaluationRefused) as e:
+        print(f"refused: {e}")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = build_parser().parse_args(argv)
@@ -112,18 +143,15 @@ def main(argv: list[str] | None = None) -> int:
         from algotrade.config import load_config, verify_criteria
         verify_criteria(load_config(args.market))
         if args.command == "backtest":
-            from algotrade import evaluate
-            if args.split == "is":
-                evaluate.run_is(args.market)
-            else:
-                if args.force and not args.reason.strip():
-                    print("--force needs --reason \"...\"")
-                    return 2
-                evaluate.run_oos(args.market, force=args.force, reason=args.reason)
-            return 0
+            return _backtest(args)
         if args.command == "paper":
             from algotrade import paper
-            paper.paper_step(args.market)
+            try:
+                report = paper.paper_step(args.market)
+            except paper.PaperRefused as e:
+                print(f"[{args.market}] paper step refused: {e}")
+                return 1
+            print(paper.format_report(report))
             return 0
     except ConfigError as e:
         print(f"config error: {e}")

@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from algotrade.engine import fill_batch  # noqa: F401  (shared fill code, re-exported)
 from algotrade.ledger import Ledger, LedgerError, State, to_event
 
 if TYPE_CHECKING:
@@ -168,47 +169,7 @@ def classify_orders(targets: dict[str, float], positions: dict[str, float], clos
     return out
 
 
-def fill_batch(gate: "RiskGate", broker: "PaperBroker", state: State, orders: list[dict], decision_date: str,
-               fill_date: str, opens: dict[str, float], marks: dict[str, float],
-               last_bar_date: dict[str, str]) -> list[dict]:
-    """Ledger events (skip/fill, no settle) for executing `orders` at the open of `fill_date`. Pure.
-
-    Orders without a bar -> Skip no_bar. The rest go to PaperBroker.execute (sells first, buys scaled pro rata to
-    the cash); every quantity the broker would trade is then screened by RiskGate.screen (sells first, projected
-    cash/positions). Refused orders become Skip "risk_gate:<rule>" and the broker is re-run without them, until
-    every executed fill is one the gate allowed with exactly that quantity (the set only shrinks, so this ends)."""
-    from algotrade.broker import Order, Skip
-    from algotrade.risk import GateView
-
-    cash, pos = float(state.cash), dict(state.positions)
-    equity_open = broker.equity_at_open(cash, pos, opens, marks)
-    no_bar: list[dict] = []
-    allowed: list[Order] = []
-    for od in orders:
-        o = Order(symbol=od["symbol"], side=od["side"], kind=od["kind"], target_weight=float(od["target_weight"]),
-                  decision_date=decision_date, fill_date=fill_date)
-        p = opens.get(o.symbol)
-        if not (_finite(p) and p > 0):
-            no_bar.append(to_event("skip", Skip(o.symbol, o.kind, "no_bar", fill_date)))
-        else:
-            allowed.append(o)
-    prices = {**{s: marks[s] for s in pos if s in marks}, **opens}
-    view = GateView(date=fill_date, equity=equity_open, start_equity=state.start_equity, cash=cash, positions=pos,
-                    prices=prices, last_bar_date=dict(last_bar_date), killed=state.killed)
-    refused: list[dict] = []
-    while True:
-        fills, skips = broker.execute(allowed, opens, cash, pos, marks)
-        qty = {f.symbol: f.qty for f in fills}
-        verdicts = gate.screen([(o, qty[o.symbol]) for o in allowed if o.symbol in qty], view)
-        bad = {o.symbol: v for o, _q, v in verdicts if not v.allowed or abs(v.qty - qty[o.symbol]) > 1e-12 * max(1.0, v.qty)}
-        if not bad:
-            break
-        for o in allowed:
-            if o.symbol in bad:
-                rule = bad[o.symbol].rule or "qty_mismatch"
-                refused.append(to_event("skip", Skip(o.symbol, o.kind, f"risk_gate:{rule}", fill_date)))
-        allowed = [o for o in allowed if o.symbol not in bad]
-    return no_bar + refused + [to_event("fill", f) for f in fills] + [to_event("skip", s) for s in skips]
+# fill_batch lives in engine.py (shared with the backtest so both make identical fills); imported above.
 
 
 # ---------------------------------------------------------------- plumbing
