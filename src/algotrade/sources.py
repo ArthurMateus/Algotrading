@@ -46,8 +46,9 @@ def http_get(url: str, *, params: dict[str, str] | None = None, timeout: float =
     global _last_request_at
     if params:
         url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
-    if not url.lower().startswith(("http://", "https://")):
-        raise SourceError(f"refusing non-http url: {url}")
+    # https only; plain http is allowed for the loopback fake server in tests.
+    if not url.lower().startswith(("https://", "http://127.0.0.1", "http://localhost")):
+        raise SourceError(f"refusing non-https url: {url}")
     last: Exception | None = None
     status: int | None = None
     for attempt in range(retries + 1):

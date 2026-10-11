@@ -19,7 +19,8 @@ FORBIDDEN_TEXT = re.compile(
     r"sign_l1|sign_typed|sign_message|signTransaction|sendTransaction|"
     r"/exchange\b|/fapi/v\d+/order|/api/v3/order|/v5/order|/v2/orders|/v2/positions|"
     r"create_order|place_order|submit_order|cancel_order|"
-    r"api-key|X-MBX-APIKEY|APCA-API-SECRET|os\.environ|getenv\(|dotenv", re.I)
+    r"api-key|X-MBX-APIKEY|APCA-API-SECRET|os\.environ|getenv\(|dotenv|"
+    r"Authorization|Bearer|method=\"(?:POST|PUT|DELETE|PATCH)\"|\bdata=", re.I)
 
 
 def _code_files():
@@ -45,6 +46,21 @@ def test_dependencies_have_no_trading_or_signing_sdk():
     for mod in FORBIDDEN_MODULES:
         name = mod.lower().replace("_", "-")
         assert not re.search(rf'"{re.escape(name)}[\s<>=~!\[";]', text), f"pyproject.toml lists {mod}"
+
+
+def test_lockfile_has_no_trading_or_signing_sdk():
+    lock = ROOT / "uv.lock"
+    names = set(re.findall(r'^name = "([^"]+)"', lock.read_text(encoding="utf-8"), re.M)) if lock.exists() else set()
+    banned = {m.lower().replace("_", "-") for m in FORBIDDEN_MODULES}
+    assert not names & banned, f"uv.lock pulls in {sorted(names & banned)}"
+
+
+def test_only_sources_http_get_opens_urls():
+    for f in _code_files():
+        if f.name == "sources.py":
+            continue
+        text = f.read_text(encoding="utf-8-sig")
+        assert not re.search(r"urlopen|http\.client|requests\.|httpx|socket\.", text), f"{f.relative_to(ROOT)} opens a connection"
 
 
 def test_importing_the_package_loads_no_signing_library():
