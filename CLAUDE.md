@@ -10,6 +10,7 @@ brief is `algo-trading-orchestrator-prompt.md` (never edit it).
 - Windows 11, Brazilian Portuguese locale (Windows errors may come out in Portuguese), PowerShell. Country, tax and
   licensing situation: **unknown, ask, never assume** (the locale is not evidence of residence).
 - Give exact copy-paste commands, one per code block, and explain results in plain words.
+- GitHub: https://github.com/ArthurMateus/Algotrading (branch `main`, public: never commit secrets, data or personal details).
 - Earlier project for style and lessons (read only, never modify): `C:\projects\My stuff\Copytrade Test`.
 
 ## Hard rules (every agent, every phase)
