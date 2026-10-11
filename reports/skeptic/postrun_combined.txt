@@ -1,0 +1,5 @@
+A SMA-252-weekly   T-bill cash + GLD 01-30 neutral: Sharpe 0.882  maxDD  5.16%  UW  16.1m  CAGR   8.49%  $ 485.3
+A benchmark        T-bill cash + GLD 01-30 neutral: Sharpe 0.922  maxDD 16.25%  UW  20.6m  CAGR  12.59%  $ 604.2
+A c8: FAIL
+B close-fill (1-day latency) + T-bill cash: Sharpe 0.369  maxDD 33.70%  UW  17.1m  CAGR  11.40%  $ 431.6
+B benchmark close-fill: Sharpe 0.640  maxDD 60.07%  UW  11.8m  CAGR  27.64%  $ 682.8

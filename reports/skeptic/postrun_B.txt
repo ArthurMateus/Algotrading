@@ -1,0 +1,63 @@
+﻿== Market B: selected SMA-126-weekly; OOS 2023-05-18..2026-09-30 (1232 bars); rf mean annual 4.47%
+
+== 0. Reproduction of the logged OOS run (must match backtest-{m}-oos.md)
+strategy : Sharpe 0.423  maxDD 34.77%  UW  17.0m  CAGR  13.03%  $ 453.3  round trips 18
+benchmark: Sharpe 0.642  maxDD 60.15%  UW  11.8m  CAGR  27.77%  $ 685.2  -> criterion 8 FAIL
+
+== 1. Idle cash earns the T-bill (strategy and benchmark)
+strategy : Sharpe 0.511  maxDD 33.62%  UW  16.9m  CAGR  15.76%  $ 491.3   (mean cash share 55.3%)
+benchmark: Sharpe 0.643  maxDD 60.15%  UW  11.8m  CAGR  27.78%  $ 685.3
+-> criterion 8 with T-bill cash: FAIL; crit 1 0.511; crit 3 UW 16.9m
+x2 costs + T-bill cash: Sharpe 0.482  maxDD 34.08%  UW  17.0m  CAGR  14.84%  $ 478.2
+
+== 2. All 12 grid variants on OOS (POST-HOC, information only, NOT usable for selection)
+IS Sharpe from is_selection; OOS at x1 costs; T-bill-cash Sharpe in last column
+TSMOM-63-weekly    IS  0.831 | OOS Sharpe 0.478  maxDD 41.09%  UW  13.6m  CAGR  15.03%  $ 480.9 RT  29 c8 FAIL | Tbill Sharpe 0.564 c8 FAIL
+TSMOM-63-monthly   IS  0.797 | OOS Sharpe 0.354  maxDD 41.50%  UW  13.6m  CAGR  10.87%  $ 424.8 RT  13 c8 FAIL | Tbill Sharpe 0.452 c8 FAIL
+TSMOM-126-weekly   IS  1.174 | OOS Sharpe 0.467  maxDD 32.95%  UW  30.6m  CAGR  14.63%  $ 475.3 RT  12 c8 FAIL | Tbill Sharpe 0.552 c8 FAIL
+TSMOM-126-monthly  IS  0.928 | OOS Sharpe 0.404  maxDD 37.69%  UW  21.5m  CAGR  12.62%  $ 447.8 RT   8 c8 FAIL | Tbill Sharpe 0.489 c8 FAIL
+TSMOM-252-weekly   IS  0.891 | OOS Sharpe 0.538  maxDD 31.30%  UW  11.8m  CAGR  18.01%  $ 524.2 RT   7 c8 FAIL | Tbill Sharpe 0.593 c8 FAIL
+TSMOM-252-monthly  IS  0.791 | OOS Sharpe 0.509  maxDD 30.35%  UW  13.6m  CAGR  16.94%  $ 508.3 RT   4 c8 FAIL | Tbill Sharpe 0.563 c8 FAIL
+SMA-63-weekly      IS  1.131 | OOS Sharpe 0.548  maxDD 35.91%  UW  30.6m  CAGR  16.83%  $ 506.7 RT  31 c8 FAIL | Tbill Sharpe 0.642 c8 FAIL
+SMA-63-monthly     IS  0.807 | OOS Sharpe 0.590  maxDD 27.36%  UW  13.3m  CAGR  17.59%  $ 518.0 RT  15 c8 FAIL | Tbill Sharpe 0.697 c8 PASS
+SMA-126-weekly     IS  1.193 | OOS Sharpe 0.423  maxDD 34.77%  UW  17.0m  CAGR  13.03%  $ 453.3 RT  18 c8 FAIL | Tbill Sharpe 0.511 c8 FAIL <- selected
+SMA-126-monthly    IS  1.043 | OOS Sharpe 0.643  maxDD 24.88%  UW  13.6m  CAGR  19.98%  $ 554.3 RT  10 c8 PASS | Tbill Sharpe 0.734 c8 PASS
+SMA-252-weekly     IS  0.920 | OOS Sharpe 0.663  maxDD 27.31%  UW  11.8m  CAGR  21.62%  $ 580.2 RT  10 c8 PASS | Tbill Sharpe 0.736 c8 PASS
+SMA-252-monthly    IS  0.891 | OOS Sharpe 0.436  maxDD 31.52%  UW  30.6m  CAGR  14.14%  $ 468.5 RT   7 c8 FAIL | Tbill Sharpe 0.501 c8 FAIL
+OOS Sharpe across 12: min 0.354 median 0.493 max 0.663; variants beating bench Sharpe 0.642: 2/12
+Spearman(IS Sharpe, OOS Sharpe) = 0.03
+
+== 3a. Start-date shifts (end fixed at OOS end). Negative shifts start inside IS (diagnostic only)
+start 2022-11-18 (-6m): strat Sharpe 0.511 DD 34.77% UW  17.0m | bench Sharpe 0.801 DD 60.15% UW  11.8m | c8 FAIL
+start 2023-02-18 (-3m): strat Sharpe 0.434 DD 34.76% UW  17.0m | bench Sharpe 0.651 DD 60.16% UW  11.8m | c8 FAIL
+start 2023-05-18 (+0m): strat Sharpe 0.423 DD 34.77% UW  17.0m | bench Sharpe 0.642 DD 60.15% UW  11.8m | c8 FAIL
+start 2023-08-18 (+3m): strat Sharpe 0.605 DD 34.77% UW  17.0m | bench Sharpe 0.711 DD 60.16% UW  11.8m | c8 FAIL
+start 2023-11-18 (+6m): strat Sharpe 0.470 DD 34.75% UW  17.0m | bench Sharpe 0.590 DD 60.17% UW  11.8m | c8 FAIL
+
+== 3b. Calendar sub-periods of the logged OOS run (slices of one continuous run)
+2023: strat ret   17.2% Sharpe   0.84 DD  15.2% | bench ret   41.7% Sharpe   1.50 DD  21.2%
+2024: strat ret   26.8% Sharpe   0.83 DD  34.8% | bench ret   75.1% Sharpe   1.26 DD  35.6%
+2025: strat ret    6.6% Sharpe   0.24 DD  16.4% | bench ret   -5.6% Sharpe   0.12 DD  44.7%
+2026: strat ret   -8.1% Sharpe  -0.93 DD  17.8% | bench ret   -7.9% Sharpe   0.02 DD  46.7%
+
+== 4. Concentration (close-to-close attribution: w[t-1] * asset return[t]; approximate)
+attribution check: corr(sum contrib, actual return) 0.9848; sum residual 10.06% (costs + open-vs-close fill effects)
+per instrument: sum of daily contributions (pp) and strategy Sharpe without it (its contribs set to 0)
+  BTCUSDT   19.83 pp   Sharpe w/o 0.376   exposure 28.0%
+  ETHUSDT   23.54 pp   Sharpe w/o 0.272   exposure 16.7%
+trades (holding spells): 20; top 5:
+  BTCUSDT  from 2023-10-24  245 bars   31.77 pp
+  ETHUSDT  from 2023-10-31  196 bars   24.14 pp
+  ETHUSDT  from 2025-05-13  175 bars   13.68 pp
+  BTCUSDT  from 2024-09-24  168 bars   13.22 pp
+  BTCUSDT  from 2025-04-29  126 bars    6.55 pp
+drop top-5 trades: Sharpe -1.126  maxDD 40.84%  UW  40.1m  CAGR -10.92%  $ 203.2
+share of total contribution from top 5: 206%
+
+== 5. Cost stress beyond x2 (x3, x4)
+x3: Sharpe 0.362  maxDD 35.67%  UW  17.1m  CAGR  11.19%  $ 428.9
+x4: Sharpe 0.332  maxDD 36.14%  UW  17.1m  CAGR  10.32%  $ 417.7
+
+== 7. Data: largest |daily return| per instrument in OOS, and held weight that day
+  BTCUSDT  2026-02-05 -14.02%  strat weight prior close 0.0%  bench 51.6%
+  ETHUSDT  2025-05-08  21.88%  strat weight prior close 0.0%  bench 49.4%

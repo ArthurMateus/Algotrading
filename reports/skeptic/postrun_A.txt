@@ -1,0 +1,86 @@
+﻿== Market A: selected SMA-252-weekly; OOS 2020-11-03..2026-09-30 (1483 bars); rf mean annual 3.20%
+
+== 0. Reproduction of the logged OOS run (must match backtest-{m}-oos.md)
+strategy : Sharpe 0.624  maxDD  7.50%  UW  24.6m  CAGR   6.92%  $ 445.3  round trips 50
+benchmark: Sharpe 0.874  maxDD 16.25%  UW  20.6m  CAGR  12.13%  $ 589.8  -> criterion 8 FAIL
+
+== 1. Idle cash earns the T-bill (strategy and benchmark)
+strategy : Sharpe 0.831  maxDD  5.16%  UW  16.1m  CAGR   8.22%  $ 478.4   (mean cash share 41.6%)
+benchmark: Sharpe 0.874  maxDD 16.25%  UW  20.6m  CAGR  12.13%  $ 590.0
+-> criterion 8 with T-bill cash: FAIL; crit 1 0.831; crit 3 UW 16.1m
+x2 costs + T-bill cash: Sharpe 0.771  maxDD  5.34%  UW  16.2m  CAGR   7.85%  $ 468.7
+
+== 2. All 12 grid variants on OOS (POST-HOC, information only, NOT usable for selection)
+IS Sharpe from is_selection; OOS at x1 costs; T-bill-cash Sharpe in last column
+TSMOM-63-weekly    IS  0.405 | OOS Sharpe 0.519  maxDD  7.10%  UW  24.0m  CAGR   6.12%  $ 426.1 RT  68 c8 FAIL | Tbill Sharpe 0.767 c8 FAIL
+TSMOM-63-monthly   IS  0.286 | OOS Sharpe 0.670  maxDD  5.42%  UW  23.8m  CAGR   7.19%  $ 452.0 RT  35 c8 FAIL | Tbill Sharpe 0.918 c8 PASS
+TSMOM-126-weekly   IS  0.405 | OOS Sharpe 0.585  maxDD  5.82%  UW  23.9m  CAGR   6.64%  $ 438.5 RT  54 c8 FAIL | Tbill Sharpe 0.805 c8 FAIL
+TSMOM-126-monthly  IS  0.532 | OOS Sharpe 0.626  maxDD  6.45%  UW  24.4m  CAGR   6.95%  $ 446.1 RT  26 c8 FAIL | Tbill Sharpe 0.848 c8 FAIL
+TSMOM-252-weekly   IS  0.400 | OOS Sharpe 0.557  maxDD  9.06%  UW  23.9m  CAGR   6.60%  $ 437.7 RT  30 c8 FAIL | Tbill Sharpe 0.760 c8 FAIL
+TSMOM-252-monthly  IS  0.457 | OOS Sharpe 0.688  maxDD  7.35%  UW  21.0m  CAGR   7.74%  $ 465.9 RT  13 c8 FAIL | Tbill Sharpe 0.879 c8 PASS
+SMA-63-weekly      IS  0.335 | OOS Sharpe 0.356  maxDD  7.16%  UW  23.9m  CAGR   5.14%  $ 403.2 RT 102 c8 FAIL | Tbill Sharpe 0.624 c8 FAIL
+SMA-63-monthly     IS  0.376 | OOS Sharpe 0.380  maxDD  8.70%  UW  31.2m  CAGR   5.34%  $ 407.9 RT  54 c8 FAIL | Tbill Sharpe 0.642 c8 FAIL
+SMA-126-weekly     IS  0.486 | OOS Sharpe 0.650  maxDD  5.24%  UW  21.4m  CAGR   6.94%  $ 445.8 RT  59 c8 FAIL | Tbill Sharpe 0.887 c8 PASS
+SMA-126-monthly    IS  0.515 | OOS Sharpe 0.702  maxDD  6.82%  UW  23.9m  CAGR   7.47%  $ 459.2 RT  34 c8 FAIL | Tbill Sharpe 0.927 c8 PASS
+SMA-252-weekly     IS  0.553 | OOS Sharpe 0.624  maxDD  7.50%  UW  24.6m  CAGR   6.92%  $ 445.3 RT  50 c8 FAIL | Tbill Sharpe 0.831 c8 FAIL <- selected
+SMA-252-monthly    IS  0.496 | OOS Sharpe 0.700  maxDD  6.86%  UW  23.9m  CAGR   7.73%  $ 465.6 RT  25 c8 FAIL | Tbill Sharpe 0.885 c8 PASS
+OOS Sharpe across 12: min 0.356 median 0.625 max 0.702; variants beating bench Sharpe 0.874: 0/12
+Spearman(IS Sharpe, OOS Sharpe) = 0.51
+
+== 3a. Start-date shifts (end fixed at OOS end). Negative shifts start inside IS (diagnostic only)
+start 2020-05-04 (-6m): strat Sharpe 0.618 DD  7.50% UW  24.6m | bench Sharpe 0.989 DD 16.29% UW  20.6m | c8 FAIL
+start 2020-08-03 (-3m): strat Sharpe 0.553 DD  7.50% UW  24.6m | bench Sharpe 0.841 DD 16.25% UW  20.6m | c8 FAIL
+start 2020-11-03 (+0m): strat Sharpe 0.624 DD  7.50% UW  24.6m | bench Sharpe 0.874 DD 16.25% UW  20.6m | c8 FAIL
+start 2021-02-03 (+3m): strat Sharpe 0.514 DD  7.50% UW  24.6m | bench Sharpe 0.768 DD 16.25% UW  20.6m | c8 FAIL
+start 2021-05-03 (+6m): strat Sharpe 0.387 DD  7.50% UW  24.6m | bench Sharpe 0.701 DD 16.25% UW  20.6m | c8 FAIL
+
+== 3b. Calendar sub-periods of the logged OOS run (slices of one continuous run)
+2020: strat ret    4.2% Sharpe   5.61 DD   0.8% | bench ret    7.2% Sharpe   6.09 DD   1.2%
+2021: strat ret    8.3% Sharpe   1.31 DD   3.7% | bench ret   13.8% Sharpe   1.57 DD   4.6%
+2022: strat ret   -1.6% Sharpe  -0.88 DD   5.4% | bench ret   -5.8% Sharpe  -0.54 DD  16.3%
+2023: strat ret    1.5% Sharpe  -0.70 DD   5.7% | bench ret   10.8% Sharpe   0.67 DD   6.3%
+2024: strat ret    8.1% Sharpe   0.39 DD   3.7% | bench ret   11.8% Sharpe   0.72 DD   4.4%
+2025: strat ret   13.4% Sharpe   1.39 DD   4.9% | bench ret   24.3% Sharpe   1.87 DD   7.8%
+2026: strat ret    7.5% Sharpe   0.99 DD   3.5% | bench ret   11.0% Sharpe   1.01 DD   6.4%
+
+== 4. Concentration (close-to-close attribution: w[t-1] * asset return[t]; approximate)
+attribution check: corr(sum contrib, actual return) 0.9975; sum residual -2.61% (costs + open-vs-close fill effects)
+per instrument: sum of daily contributions (pp) and strategy Sharpe without it (its contribs set to 0)
+  SPY       12.52 pp   Sharpe w/o 0.324   exposure 14.5%
+  EFA        7.37 pp   Sharpe w/o 0.538   exposure 13.5%
+  IEF       -0.67 pp   Sharpe w/o 0.656   exposure 9.1%
+  GLD       11.08 pp   Sharpe w/o 0.380   exposure 11.2%
+  DBC       12.85 pp   Sharpe w/o 0.299   exposure 10.0%
+trades (holding spells): 53; top 5:
+  GLD      from 2023-10-17  671 bars   13.89 pp
+  DBC      from 2020-11-17  467 bars    9.06 pp
+  DBC      from 2025-06-10  329 bars    6.53 pp
+  SPY      from 2023-11-07  349 bars    5.32 pp
+  EFA      from 2025-04-15  367 bars    4.36 pp
+drop top-5 trades: Sharpe -0.814  maxDD 10.14%  UW  58.6m  CAGR   0.17%  $ 303.0
+share of total contribution from top 5: 91%
+
+== 5. Cost stress beyond x2 (x3, x4)
+x3: Sharpe 0.508  maxDD  8.47%  UW  26.2m  CAGR   6.19%  $ 427.7
+x4: Sharpe 0.450  maxDD  8.96%  UW  26.3m  CAGR   5.83%  $ 419.3
+
+== 7. Data: largest |daily return| per instrument in OOS, and held weight that day
+  SPY      2025-04-09  10.50%  strat weight prior close 0.0%  bench 19.2%
+  EFA      2025-04-09   7.72%  strat weight prior close 0.0%  bench 19.3%
+  IEF      2022-09-28   2.25%  strat weight prior close 0.0%  bench 20.1%
+  GLD      2026-01-30 -10.27%  strat weight prior close 13.8%  bench 22.8%
+  DBC      2022-03-09  -7.94%  strat weight prior close 13.5%  bench 22.5%
+GLD around 2026-01-30 (adj close, open):
+             close    open
+date                      
+2026-01-26  464.70  466.78
+2026-01-27  476.10  465.07
+2026-01-28  494.56  483.39
+2026-01-29  495.90  509.51
+2026-01-30  444.95  466.25
+2026-02-02  427.13  434.01
+2026-02-03  454.29  452.63
+2026-02-04  453.97  462.47
+2026-02-05  441.88  444.29
+  strategy with GLD 2026-01-30 return set to 0: Sharpe 0.673  maxDD  7.50%  UW  24.6m  CAGR   7.18%  $ 451.8
+  benchmark with GLD 2026-01-30 return set to 0: Sharpe 0.921  maxDD 16.25%  UW  20.6m  CAGR  12.58%  $ 604.1
