@@ -3,10 +3,20 @@ name = "algotrade"
 version = "0.0.1"
 description = "Tryout: is any algorithmic trading viable for a retail developer? Paper and backtest only."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "numpy>=2.4.6",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
+]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "hypothesis>=6.169.0",
+    "pytest>=8",
+]
+
+[project.scripts]
+algotrade = "algotrade.cli:main"
 
 [build-system]
 requires = ["hatchling"]
