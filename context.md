@@ -27,9 +27,11 @@ Start here, then read `CLAUDE.md` (rules, pipeline, layout). Everything is **PAP
 - Phase 6 (forward paper): NOT run (Phase 5 failed).
 - Phase 7 (verdict): `reports/VERDICT.md` = NO-GO for both markets.
 
-## Waiting on the owner (HUMAN GATE 3)
-- Decide what happens next (stop / new pre-registered study / other). Nothing goes beyond paper mode without the
-  owner's explicit written approval.
+## Waiting on the owner (study 2 scope)
+- 2026-10-11 GATE 3: owner chose option **3, a new, separately pre-registered study** (study 2). Study 1 (A + B
+  trend) stays closed: NO-GO, its OOS windows are spent and its 24 variants count toward study 2's correction.
+- Next: owner picks the study-2 scope, then `/research` (Phase 1 again) -> GATE 1. Nothing goes beyond paper mode
+  without the owner's explicit written approval.
 
 ## Answered at GATE 1
 - Candidate, country, capital, drawdown tolerance: see owner answers below. Tax situation: still open.
